@@ -1,0 +1,46 @@
+# Central Homelab Monitor — runs on the always-on server.
+#
+# Why a container: appliance-style distros (ZimaOS, CasaOS, …) keep /etc and
+# root's crontab on a system partition that OTA updates replace. A container
+# with a restart policy and a data volume survives reboots and updates.
+#
+# MONITOR_DATA_DIR comes from the .env file next to this compose file
+# (see .env.example); install-central.sh writes it.
+services:
+  homelab-monitor:
+    build: .
+    image: homelab-monitor:latest
+    container_name: homelab-monitor
+    restart: unless-stopped
+    # Host namespaces so the bot sees the real machine: ports, processes,
+    # interfaces, load.
+    network_mode: host
+    pid: host
+    # Lets /ports map listening sockets to their processes (reading
+    # /proc/<pid>/fd of host processes needs ptrace-read, which Docker's
+    # default AppArmor profile denies). Everything else is read-only.
+    cap_add:
+      - SYS_PTRACE
+    security_opt:
+      - apparmor=unconfined
+    env_file:
+      - monitor.env
+    environment:
+      HOST_ROOT: /host
+      DATA_DIR: /data
+    volumes:
+      # Whole host filesystem, read-only, with mount propagation so the
+      # external drives under /media are visible (disk usage, backup log).
+      - type: bind
+        source: /
+        target: /host
+        read_only: true
+        bind:
+          propagation: rslave
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - ${MONITOR_DATA_DIR:-./data}:/data
+    logging:
+      driver: json-file
+      options:
+        max-size: "5m"
+        max-file: "3"

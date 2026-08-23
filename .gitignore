@@ -1,0 +1,16 @@
+# Secrets / local configuration
+monitor.env
+.env
+
+# Local state when running without Docker
+data/
+
+# Python
+__pycache__/
+*.pyc
+
+# Editors
+.vscode/
+.idea/
+*~
+.DS_Store

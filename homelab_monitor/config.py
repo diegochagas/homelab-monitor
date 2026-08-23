@@ -1,0 +1,129 @@
+"""Configuration loaded from environment variables (see monitor.env.example)."""
+
+import os
+from dataclasses import dataclass, field
+
+
+def _env(name, default=""):
+    return os.environ.get(name, default).strip()
+
+
+def _int(name, default):
+    try:
+        return int(_env(name, str(default)))
+    except ValueError:
+        return default
+
+
+def _float(name, default):
+    try:
+        return float(_env(name, str(default)))
+    except ValueError:
+        return default
+
+
+def _list(name, default=""):
+    raw = _env(name, default)
+    return [item.strip() for item in raw.split(",") if item.strip()]
+
+
+def _int_list(name):
+    result = []
+    for item in _list(name):
+        try:
+            result.append(int(item))
+        except ValueError:
+            pass
+    return result
+
+
+@dataclass
+class Config:
+    # Identity
+    node_name: str = field(default_factory=lambda: _env("NODE_NAME", "central"))
+
+    # Telegram
+    bot_token: str = field(default_factory=lambda: _env("TELEGRAM_BOT_TOKEN"))
+    chat_id: str = field(default_factory=lambda: _env("TELEGRAM_CHAT_ID"))
+    allowed_user_ids: list = field(default_factory=lambda: _int_list("TELEGRAM_ALLOWED_USER_IDS"))
+    allowed_chat_ids: list = field(default_factory=lambda: _int_list("TELEGRAM_ALLOWED_CHAT_IDS"))
+
+    # Paths
+    host_root: str = field(default_factory=lambda: _env("HOST_ROOT", "").rstrip("/"))
+    data_dir: str = field(default_factory=lambda: _env("DATA_DIR", "./data"))
+
+    # Agent HTTP endpoint (central)
+    listen_host: str = field(default_factory=lambda: _env("LISTEN_HOST", "0.0.0.0"))
+    listen_port: int = field(default_factory=lambda: _int("LISTEN_PORT", 8787))
+    registration_key: str = field(default_factory=lambda: _env("REGISTRATION_KEY"))
+
+    # Agent (remote node)
+    central_url: str = field(default_factory=lambda: _env("CENTRAL_URL").rstrip("/"))
+    agent_id: str = field(default_factory=lambda: _env("AGENT_ID"))
+    agent_token: str = field(default_factory=lambda: _env("AGENT_TOKEN"))
+    heartbeat_interval: int = field(default_factory=lambda: _int("HEARTBEAT_INTERVAL", 60))
+
+    # Monitoring
+    check_interval: int = field(default_factory=lambda: _int("CHECK_INTERVAL", 60))
+    alert_repeat_seconds: int = field(default_factory=lambda: _int("ALERT_REPEAT_SECONDS", 3600))
+    alert_confirmations: int = field(default_factory=lambda: _int("ALERT_CONFIRMATIONS", 2))
+    offline_after_missed: int = field(default_factory=lambda: _int("OFFLINE_AFTER_MISSED", 3))
+
+    # Thresholds
+    cpu_percent: float = field(default_factory=lambda: _float("ALERT_CPU_PERCENT", 90))
+    memory_percent: float = field(default_factory=lambda: _float("ALERT_MEMORY_PERCENT", 90))
+    disk_percent: float = field(default_factory=lambda: _float("ALERT_DISK_PERCENT", 90))
+    temp_c: float = field(default_factory=lambda: _float("ALERT_TEMP_C", 80))
+    disk_ignore: list = field(default_factory=lambda: _list("DISK_IGNORE"))
+
+    # Backups
+    server_backup_log: str = field(default_factory=lambda: _env("SERVER_BACKUP_LOG"))
+    backup_log_dir: str = field(default_factory=lambda: _env("BACKUP_LOG_DIR"))
+    backup_max_age_hours: int = field(default_factory=lambda: _int("BACKUP_MAX_AGE_HOURS", 48))
+
+    def host_path(self, path):
+        """Map a host filesystem path to where it is visible from here."""
+        if not self.host_root:
+            return path
+        return self.host_root + path
+
+    def validate_central(self):
+        problems = []
+        if not self.bot_token:
+            problems.append("TELEGRAM_BOT_TOKEN is not set")
+        if not self.chat_id:
+            problems.append("TELEGRAM_CHAT_ID is not set")
+        if not self.allowed_user_ids and not self.allowed_chat_ids:
+            problems.append("TELEGRAM_ALLOWED_USER_IDS is not set — the bot would answer nobody")
+        if not self.registration_key:
+            problems.append("REGISTRATION_KEY is not set — agents could not register")
+        return problems
+
+    def validate_agent(self):
+        problems = []
+        if not self.central_url:
+            problems.append("CENTRAL_URL is not set")
+        if not self.agent_id:
+            problems.append("AGENT_ID is not set")
+        if not self.agent_token:
+            problems.append("AGENT_TOKEN is not set")
+        if not self.registration_key:
+            problems.append("REGISTRATION_KEY is not set")
+        return problems
+
+
+def load_env_file(path):
+    """Load KEY=VALUE lines into os.environ (without overriding existing vars)."""
+    if not path or not os.path.isfile(path):
+        return
+    with open(path, encoding="utf-8") as handle:
+        for line in handle:
+            line = line.strip()
+            if not line or line.startswith("#") or "=" not in line:
+                continue
+            key, value = line.split("=", 1)
+            key = key.strip()
+            value = value.strip()
+            if len(value) >= 2 and value[0] == value[-1] and value[0] in "\"'":
+                value = value[1:-1]
+            os.environ.setdefault(key, value)

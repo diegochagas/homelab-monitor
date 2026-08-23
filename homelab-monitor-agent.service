@@ -1,0 +1,14 @@
+[Unit]
+Description=Homelab Monitor agent
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+WorkingDirectory=@MONITOR_DIR@
+ExecStart=/usr/bin/python3 -m homelab_monitor.agent @MONITOR_DIR@/monitor.env
+Restart=always
+RestartSec=15
+
+[Install]
+WantedBy=default.target
