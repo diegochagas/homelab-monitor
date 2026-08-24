@@ -136,6 +136,9 @@ class AlertEngine:
                 f"{GREEN} <b>{label} OK — {heading}</b>\n\n{text}",
             )
 
+    def backup_only(self, node):
+        return node["name"].lower() in self.cfg.backup_only_nodes
+
     def check_offline(self, node):
         cfg = self.cfg
         node_id, heading = node["id"], e(node["name"])
@@ -158,6 +161,14 @@ class AlertEngine:
             try:
                 if node["role"] == "central":
                     self.check_node(node, central_snapshot)
+                    continue
+                if self.backup_only(node):
+                    # Laptops and other intermittently-online machines: skip
+                    # offline/CPU/memory/disk/temp/container checks entirely,
+                    # just watch backup freshness off whatever was last reported.
+                    snapshot = self.state.snapshot_of(node)
+                    if snapshot:
+                        self.check_backups(node, snapshot)
                     continue
                 if self.check_offline(node):
                     continue

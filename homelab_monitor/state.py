@@ -155,6 +155,13 @@ class State:
             )
             self._conn.commit()
 
+    def clear_alerts_except_backup(self, node_id):
+        with self._lock:
+            self._conn.execute(
+                "DELETE FROM alerts WHERE node=? AND key NOT LIKE ?", (node_id, f"{node_id}:backup:%")
+            )
+            self._conn.commit()
+
     def active_alerts(self, node_id=None):
         with self._lock:
             if node_id:

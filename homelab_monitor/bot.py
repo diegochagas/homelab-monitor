@@ -157,6 +157,10 @@ class Bot:
         log.info("connected to Telegram as @%s", self._bot_username)
         self.telegram.set_commands(COMMANDS)
 
+        for node in self.state.nodes():
+            if node["role"] != "central" and node["name"].lower() in self.cfg.backup_only_nodes:
+                self.state.clear_alerts_except_backup(node["id"])
+
         server = AgentServer(self.cfg, self.state, self.on_registered)
         server.start()
         log.info("agent endpoint listening on %s:%s", self.cfg.listen_host, self.cfg.listen_port)

@@ -75,6 +75,7 @@ class Config:
     disk_percent: float = field(default_factory=lambda: _float("ALERT_DISK_PERCENT", 90))
     temp_c: float = field(default_factory=lambda: _float("ALERT_TEMP_C", 80))
     disk_ignore: list = field(default_factory=lambda: _list("DISK_IGNORE"))
+    backup_only_nodes: list = field(default_factory=lambda: [n.lower() for n in _list("BACKUP_ONLY_NODES")])
 
     # Backups
     server_backup_log: str = field(default_factory=lambda: _env("SERVER_BACKUP_LOG"))

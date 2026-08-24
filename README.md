@@ -128,6 +128,9 @@ follows.
 Containers are remembered once seen. If you remove one on purpose, answer
 the alert with `/forget name [server]`.
 
+A node listed in `BACKUP_ONLY_NODES` only gets the backup alerts above —
+useful for a laptop or other machine that isn't expected to stay online.
+
 ---
 
 ## Requirements
@@ -214,6 +217,7 @@ Everything lives in two gitignored files next to the code:
 | `LISTEN_HOST`, `LISTEN_PORT` | central | Agent endpoint (default `0.0.0.0:8787`) |
 | `SERVER_BACKUP_LOG` | central | Server-side backup log for `/backups` and stale alerts |
 | `DISK_IGNORE` | both | Mounts never alerted on (e.g. a read-only root that is always full) |
+| `BACKUP_ONLY_NODES` | central | Node names that only get backup alerts (no offline/CPU/memory/disk/temp/container checks) — for intermittently-online machines like a laptop |
 | `CENTRAL_URL`, `AGENT_ID`, `AGENT_TOKEN`, `HEARTBEAT_INTERVAL` | agent | Where and how to report |
 | `BACKUP_LOG_DIR` | agent | homelab-backup `backup.sh` logs for `/backups` and stale alerts |
 | `CHECK_INTERVAL`, `ALERT_CONFIRMATIONS`, `ALERT_REPEAT_SECONDS`, `OFFLINE_AFTER_MISSED` | central | Alert cadence |
