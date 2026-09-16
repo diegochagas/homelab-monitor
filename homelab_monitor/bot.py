@@ -63,8 +63,18 @@ class Bot:
         exit immediately without waiting for background threads to unwind.
         Only meaningful under `restart: unless-stopped` (see docker-compose.yml);
         outside Docker the process just stops.
+
+        Telegram only marks earlier updates as delivered on the *next*
+        getUpdates call carrying the new offset, so without this the
+        /restart update itself would still be pending and get redelivered
+        (and reprocessed) on every fresh start — an infinite restart loop.
+        Flush it with a zero-timeout call before exiting.
         """
         log.info("restart requested via Telegram")
+        try:
+            self.telegram.get_updates(timeout=0)
+        except Exception:  # noqa: BLE001
+            log.exception("failed to acknowledge /restart update before exiting")
         os._exit(0)
 
     def on_registered(self, node):
