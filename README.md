@@ -83,6 +83,7 @@ volume survives updates and reboots.
 | `/remove server` | Unregister an agent |
 | `/forget container [server]` | Stop tracking a container you removed on purpose |
 | `/integrate` | How to add a machine |
+| `/restart` | Restart the bot (the central container) |
 | `/clear` | Delete the bot's recent messages in the chat |
 | `/version`, `/help` | |
 
@@ -267,7 +268,9 @@ is down.
 - Commands are only accepted from `TELEGRAM_ALLOWED_USER_IDS` /
   `TELEGRAM_ALLOWED_CHAT_IDS`; other senders are logged and ignored.
 - No command runs arbitrary shell. Every command is a fixed, read-only query
-  (plus renames/unregistering in the bot's own database).
+  (plus renames/unregistering in the bot's own database, and `/restart`,
+  which just exits the process for the container's `restart: unless-stopped`
+  policy to relaunch it — no Docker socket write, no shell).
 - Agents register with `REGISTRATION_KEY` and afterwards authenticate with
   their own per-machine token; comparisons are constant-time.
 - The central container mounts the host filesystem and the Docker socket

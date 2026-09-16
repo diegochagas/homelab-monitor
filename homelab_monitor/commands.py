@@ -24,6 +24,7 @@ COMMANDS = [
     ("remove", "Unregister a server"),
     ("forget", "Stop tracking a removed container"),
     ("integrate", "How to add a server"),
+    ("restart", "Restart the bot"),
     ("clear", "Delete recent bot messages"),
     ("version", "Bot version"),
     ("help", "All commands"),
@@ -185,6 +186,9 @@ class Commands:
             "",
             "The agent registers itself on its first heartbeat and shows up in /servers.",
         ])
+
+    def cmd_restart(self, _args):
+        return "__restart__"
 
     def cmd_clear(self, _args):
         return "__clear__"

@@ -424,6 +424,7 @@ def help_text(version):
         "/remove server — unregister an agent",
         "/forget name [server] — stop tracking a removed container",
         "/integrate — how to add a server",
+        "/restart — restart the bot",
         "/clear — delete recent bot messages",
         "/version · /help",
     ])

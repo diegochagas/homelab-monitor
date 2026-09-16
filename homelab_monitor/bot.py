@@ -4,6 +4,7 @@ Run with:  python3 -m homelab_monitor.bot [path/to/monitor.env]
 """
 
 import logging
+import os
 import socket
 import sys
 import threading
@@ -54,6 +55,18 @@ class Bot:
         except Exception as error:  # noqa: BLE001
             log.error("notify failed: %s", error)
 
+    def restart(self):
+        """Exit the process so the container's restart policy relaunches it.
+
+        No shell, no Docker socket write: the confirmation to Telegram is
+        already sent (self.telegram.send is synchronous), so it's safe to
+        exit immediately without waiting for background threads to unwind.
+        Only meaningful under `restart: unless-stopped` (see docker-compose.yml);
+        outside Docker the process just stops.
+        """
+        log.info("restart requested via Telegram")
+        os._exit(0)
+
     def on_registered(self, node):
         self.notify(f"➕ <b>SERVER REGISTERED</b>\n\n<code>{e(node['name'])}</code> joined the monitor.")
 
@@ -97,6 +110,10 @@ class Bot:
 
         if reply == "__clear__":
             self.clear(chat_id, message.get("message_id"))
+            return
+        if reply == "__restart__":
+            self.telegram.send(chat_id, "🔄 Restarting…")
+            self.restart()
             return
         if reply is None:
             reply = f"❓ Unknown command /{e(command)}. Try /help"
