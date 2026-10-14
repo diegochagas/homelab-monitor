@@ -209,6 +209,11 @@ Everything lives in two gitignored files next to the code:
 - `monitor.env` — the application settings (copy of `monitor.env.example`)
 - `.env` — Docker Compose variables for the central (copy of `.env.example`)
 
+`MONITOR_DATA_DIR`, `BACKUP_LOG_DIR`, and `SERVER_BACKUP_LOG` are ordinary
+data/log paths: point them at visible persistent storage appropriate for that
+machine. The same files also contain Telegram and registration secrets, so they
+remain gitignored and must not be treated as non-secret path configuration.
+
 | Key | Used by | Meaning |
 | --- | ------- | ------- |
 | `NODE_NAME` | both | Name shown in Telegram |
