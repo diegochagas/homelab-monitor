@@ -82,6 +82,19 @@ class Config:
     backup_log_dir: str = field(default_factory=lambda: _env("BACKUP_LOG_DIR"))
     backup_max_age_hours: int = field(default_factory=lambda: _int("BACKUP_MAX_AGE_HOURS", 48))
 
+    # Liked music sync (agent): download new YouTube Music likes into a folder.
+    # Off unless LIKED_MUSIC_DIR is set. LM is YouTube's id for every account's
+    # own Liked Music playlist, not a personal value.
+    liked_music_dir: str = field(default_factory=lambda: _env("LIKED_MUSIC_DIR"))
+    liked_music_playlist: str = field(
+        default_factory=lambda: _env("LIKED_MUSIC_PLAYLIST", "https://music.youtube.com/playlist?list=LM")
+    )
+    liked_music_browser: str = field(default_factory=lambda: _env("LIKED_MUSIC_BROWSER", "firefox"))
+    liked_music_ytdlp: str = field(default_factory=lambda: _env("LIKED_MUSIC_YTDLP", "yt-dlp"))
+    liked_music_interval_hours: float = field(default_factory=lambda: _float("LIKED_MUSIC_INTERVAL_HOURS", 6))
+    liked_music_timeout_minutes: int = field(default_factory=lambda: _int("LIKED_MUSIC_TIMEOUT_MINUTES", 120))
+    liked_music_extra_path: str = field(default_factory=lambda: _env("LIKED_MUSIC_EXTRA_PATH"))
+
     def host_path(self, path):
         """Map a host filesystem path to where it is visible from here."""
         if not self.host_root:

@@ -2,7 +2,7 @@
 
 ![Python](https://img.shields.io/badge/Python-3.8%2B-blue)
 ![License](https://img.shields.io/github/license/diegochagas/homelab-monitor)
-![Version](https://img.shields.io/badge/version-1.0.0-blue)
+![Version](https://img.shields.io/badge/version-1.1.0-blue)
 
 A Telegram bot that watches a small homelab: one always-on **central** server
 runs the bot, other Linux machines run a lightweight **agent**, and you get
@@ -28,7 +28,9 @@ failed backups.
 │   ├─ Telegram bot (long polling)  │◀───────┤   heartbeat + metrics every    │
 │   ├─ HTTP endpoint :8787          │  LAN / │   60 s (POST /api/v1/heartbeat)│
 │   ├─ alert loop every 60 s        │Tailscale                                │
-│   └─ SQLite state                 │        │                                │
+│   └─ SQLite state                 │        │   optional: every 6 h download │
+│                                   │        │   new YouTube Music likes      │
+│                                   │        │   (yt-dlp → music folder)      │
 └───────────────┬───────────────────┘        └────────────────────────────────┘
                 │ alerts, replies
                 ▼
@@ -39,6 +41,7 @@ failed backups.
 | ----- | ------- | ------------ |
 | `homelab_monitor.bot` | Central server, as a Docker container | Telegram commands, alerts, endpoint for agents |
 | `homelab_monitor.agent` | Any Linux machine, systemd user service | Pushes metrics (and the last backup result) to the central |
+| `homelab_monitor.liked_music` | Inside the agent, optional | Downloads songs newly liked on YouTube Music into a folder |
 
 The central runs as a container on purpose: appliance-style distros (ZimaOS,
 CasaOS, …) keep `/etc` and root's crontab on a system partition that OTA
@@ -60,6 +63,8 @@ volume survives updates and reboots.
 - ✅ Degrades gracefully: a missing sensor, Docker socket or log is reported
   as unavailable, never a crash
 - ✅ One-command installers for the central and for agents
+- ✅ Optional: agents download songs you newly like on YouTube Music into a
+  local folder
 
 ---
 
@@ -289,6 +294,33 @@ is down.
 
 ---
 
+## Liked music sync
+
+An agent can keep a local copy of your YouTube Music **Liked Music**
+playlist. Set `LIKED_MUSIC_DIR` in the agent's `monitor.env` and restart it:
+every `LIKED_MUSIC_INTERVAL_HOURS` (default 6) it runs yt-dlp, which reads the
+cookies of the browser signed in to YouTube Music (`LIKED_MUSIC_BROWSER`,
+default `firefox`), walks the playlist newest first and stops at the first song
+already in the folder's `.archive.txt`. Songs are saved in their original
+format (Opus or m4a) with cover art and tags, named `Artist - Title`.
+
+- Nothing is ever deleted or overwritten; unliking a song keeps the file.
+- Videos YouTube no longer serves are skipped and retried on the next run.
+- A lock file stops two syncs from running at once in the same folder.
+- The last result (time, new songs, error) travels in the heartbeat as
+  `liked_music`.
+- Needs `yt-dlp`, `ffmpeg` and a JavaScript runtime for yt-dlp (deno); put
+  the runtime's directory in `LIKED_MUSIC_EXTRA_PATH` because the user
+  service doesn't see your shell's PATH.
+
+Run it once by hand:
+
+```bash
+python3 -m homelab_monitor.liked_music monitor.env --once
+```
+
+---
+
 ## Project structure
 
 ```
@@ -296,6 +328,7 @@ homelab-monitor/
 ├── homelab_monitor/
 │   ├── bot.py          # central: Telegram polling, alert loop, wiring
 │   ├── agent.py        # agent: heartbeat loop
+│   ├── liked_music.py  # agent: download new YouTube Music likes
 │   ├── commands.py     # /command handlers
 │   ├── formatting.py   # Telegram message rendering
 │   ├── alerts.py       # confirmation / rate limit / recovery logic
@@ -304,6 +337,8 @@ homelab-monitor/
 │   ├── server.py       # HTTP endpoint for agents
 │   ├── state.py        # SQLite persistence
 │   └── config.py       # environment-driven configuration
+├── tests/              # unittest suite (python3 -m unittest discover -s tests)
+├── scripts/check       # the single validation command (pre-push hook)
 ├── install-central.sh
 ├── install-agent.sh
 ├── homelab-monitor-agent.service
@@ -311,6 +346,7 @@ homelab-monitor/
 ├── docker-compose.yml
 ├── monitor.env.example
 ├── .env.example
+├── AGENTS.md
 ├── LICENSE
 └── README.md
 ```
@@ -327,6 +363,7 @@ homelab-monitor/
 | `/temperature` says no sensor | Nothing under `/sys/class/hwmon` — normal on some VMs; not an error |
 | `/ports` shows no process names | The container needs `CAP_SYS_PTRACE` and `apparmor=unconfined` (both set by the compose file) |
 | Stale SERVER BACKUP alert | The server-side backup job stopped running — check its scheduler (`sudo crontab -l`) |
+| Liked music not downloading | `python3 -m homelab_monitor.liked_music monitor.env --once` — "Sign in to confirm" means the browser's YouTube session expired (open YouTube Music in it once); "not found" means set `LIKED_MUSIC_YTDLP` |
 | Container name already in use | The installer replaces a stray `homelab-monitor` container automatically; otherwise `sudo docker rm -f homelab-monitor` |
 
 ## Upgrading

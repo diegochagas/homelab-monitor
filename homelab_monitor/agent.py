@@ -12,18 +12,22 @@ import urllib.request
 
 from . import VERSION, metrics
 from .config import Config, load_env_file
+from .liked_music import LikedMusicLoop, settings_from_config
 
 log = logging.getLogger("agent")
 
 
-def heartbeat(cfg):
+def heartbeat(cfg, liked_loop=None):
+    snapshot = metrics.snapshot(cfg)
+    if liked_loop is not None and liked_loop.last_result is not None:
+        snapshot["liked_music"] = liked_loop.last_result.to_snapshot()
     payload = {
         "id": cfg.agent_id,
         "name": cfg.node_name,
         "token": cfg.agent_token,
         "registration_key": cfg.registration_key,
         "version": VERSION,
-        "snapshot": metrics.snapshot(cfg),
+        "snapshot": snapshot,
     }
     body = json.dumps(payload).encode()
     request = urllib.request.Request(
@@ -33,6 +37,20 @@ def heartbeat(cfg):
     )
     with urllib.request.urlopen(request, timeout=15) as response:
         return json.loads(response.read().decode())
+
+
+def start_liked_music(cfg: Config, once: bool):
+    """Start the liked-music download loop if LIKED_MUSIC_DIR is set.
+
+    Skipped for --once so a test heartbeat never starts a download.
+    """
+    settings = settings_from_config(cfg)
+    if settings is None or once:
+        return None
+    loop = LikedMusicLoop(settings)
+    loop.start()
+    log.info("liked music sync every %sh into %s", settings.interval_hours, settings.folder)
+    return loop
 
 
 def main():
@@ -48,10 +66,11 @@ def main():
 
     once = "--once" in sys.argv
     log.info("agent %s (%s) -> %s", cfg.node_name, cfg.agent_id, cfg.central_url)
+    liked_loop = start_liked_music(cfg, once)
     while True:
         started = time.time()
         try:
-            result = heartbeat(cfg)
+            result = heartbeat(cfg, liked_loop)
             log.info("heartbeat ok (registered as %s)", result.get("name"))
             if once:
                 return

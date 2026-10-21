@@ -1,0 +1,10 @@
+#!/usr/bin/env bash
+# Single validation command (dev-playbook): run before every push.
+set -euo pipefail
+cd "$(dirname "$0")/.."
+python3 -m compileall -q homelab_monitor tests
+python3 -m unittest discover -s tests
+shellcheck install-agent.sh install-central.sh scripts/check .githooks/pre-push
+# Report only: the repo predates the clean-code rules (metrics.py, formatting.py).
+# Switch to --strict once the audit is clean (dev-playbook CLEAN-CODE.md §5).
+scripts/clean-code-audit
