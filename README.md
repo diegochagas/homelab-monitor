@@ -307,8 +307,13 @@ format (Opus or m4a) with cover art and tags, named `Artist - Title`.
 - Nothing is ever deleted or overwritten; unliking a song keeps the file.
 - Videos YouTube no longer serves are skipped and retried on the next run.
 - A lock file stops two syncs from running at once in the same folder.
-- The last result (time, new songs, error) travels in the heartbeat as
-  `liked_music`.
+- The last result (time, new songs, uploads, error) travels in the
+  heartbeat as `liked_music`.
+- Optional upload to a music server: with `LIKED_MUSIC_PUSH_TARGET`
+  (`user@server:/path/`) the songs are moved there with rsync over SSH after
+  each sync. A local file is removed only once rsync has copied it, a failed
+  upload is retried on the next run, and the archive stays in
+  `LIKED_MUSIC_DIR`, which then works as a staging folder.
 - Needs `yt-dlp`, `ffmpeg` and a JavaScript runtime for yt-dlp (deno); put
   the runtime's directory in `LIKED_MUSIC_EXTRA_PATH` because the user
   service doesn't see your shell's PATH.
@@ -329,6 +334,7 @@ homelab-monitor/
 │   ├── bot.py          # central: Telegram polling, alert loop, wiring
 │   ├── agent.py        # agent: heartbeat loop
 │   ├── liked_music.py  # agent: download new YouTube Music likes
+│   ├── liked_music_push.py  # agent: upload them to the music server
 │   ├── commands.py     # /command handlers
 │   ├── formatting.py   # Telegram message rendering
 │   ├── alerts.py       # confirmation / rate limit / recovery logic

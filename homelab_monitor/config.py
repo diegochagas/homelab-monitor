@@ -94,6 +94,12 @@ class Config:
     liked_music_interval_hours: float = field(default_factory=lambda: _float("LIKED_MUSIC_INTERVAL_HOURS", 6))
     liked_music_timeout_minutes: int = field(default_factory=lambda: _int("LIKED_MUSIC_TIMEOUT_MINUTES", 120))
     liked_music_extra_path: str = field(default_factory=lambda: _env("LIKED_MUSIC_EXTRA_PATH"))
+    # Optional upload of the downloads to the music server (rsync over SSH,
+    # e.g. user@server:/path/Music/). Local copies are removed only after
+    # rsync confirms each transfer; LIKED_MUSIC_DIR keeps the archive.
+    liked_music_push_target: str = field(default_factory=lambda: _env("LIKED_MUSIC_PUSH_TARGET"))
+    liked_music_push_rsync_path: str = field(default_factory=lambda: _env("LIKED_MUSIC_PUSH_RSYNC_PATH"))
+    liked_music_push_chmod: str = field(default_factory=lambda: _env("LIKED_MUSIC_PUSH_CHMOD"))
 
     def host_path(self, path):
         """Map a host filesystem path to where it is visible from here."""

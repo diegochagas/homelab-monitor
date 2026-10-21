@@ -21,6 +21,7 @@ from dataclasses import asdict, dataclass, field
 from typing import Callable, List, Optional
 
 from .config import Config, load_env_file
+from .liked_music_push import PushSettings, push_staged_songs
 
 log = logging.getLogger("liked_music")
 
@@ -43,12 +44,16 @@ class LikedMusicSettings:
     interval_hours: float
     timeout_minutes: int
     extra_path: str
+    push_target: str = ""
+    push_rsync_path: str = ""
+    push_chmod: str = ""
 
 
 @dataclass
 class LikedSyncResult:
     checked_at: float
     new_titles: List[str] = field(default_factory=list)
+    pushed: int = 0
     error: Optional[str] = None
 
     def to_snapshot(self) -> dict:
@@ -74,6 +79,9 @@ def settings_from_config(cfg: Config) -> Optional[LikedMusicSettings]:
         interval_hours=cfg.liked_music_interval_hours,
         timeout_minutes=cfg.liked_music_timeout_minutes,
         extra_path=cfg.liked_music_extra_path,
+        push_target=cfg.liked_music_push_target,
+        push_rsync_path=cfg.liked_music_push_rsync_path,
+        push_chmod=cfg.liked_music_push_chmod,
     )
 
 
@@ -117,8 +125,10 @@ def ytdlp_environment(extra_path: str) -> dict:
     return env
 
 
-def run_liked_sync(settings: LikedMusicSettings, runner: Runner = subprocess.run) -> LikedSyncResult:
-    """Download newly liked songs once and report their titles.
+def run_liked_sync(
+    settings: LikedMusicSettings, runner: Runner = subprocess.run, push_runner: Runner = subprocess.run
+) -> LikedSyncResult:
+    """Download newly liked songs once, upload them if a target is set, report titles.
 
     Example: run_liked_sync(settings).new_titles -> ["Song A", "Song B"]
     """
@@ -131,7 +141,20 @@ def run_liked_sync(settings: LikedMusicSettings, runner: Runner = subprocess.run
         result.error = f"another liked-music sync is already running in {settings.folder!r}"
         return result
     with lock:
-        return _download_new(settings, runner, result)
+        _download_new(settings, runner, result)
+        _push_if_configured(settings, push_runner, result)
+        return result
+
+
+def _push_if_configured(settings: LikedMusicSettings, push_runner: Runner, result: LikedSyncResult) -> None:
+    """Upload staged songs; also runs when nothing is new, to retry a failed upload."""
+    if not settings.push_target:
+        return
+    push = PushSettings(settings.folder, settings.push_target, settings.push_rsync_path, settings.push_chmod)
+    outcome = push_staged_songs(push, push_runner)
+    result.pushed = outcome.pushed
+    if outcome.error:
+        result.error = f"{result.error}; {outcome.error}" if result.error else outcome.error
 
 
 def _try_lock(folder: str):
@@ -183,9 +206,11 @@ def _failure_reason(completed: subprocess.CompletedProcess, new_ids: set) -> Opt
 class LikedMusicLoop:
     """Background thread that runs run_liked_sync every interval_hours."""
 
-    def __init__(self, settings: LikedMusicSettings, runner: Runner = subprocess.run):
+    def __init__(self, settings: LikedMusicSettings, runner: Runner = subprocess.run,
+                 push_runner: Runner = subprocess.run):
         self.settings = settings
         self.runner = runner
+        self.push_runner = push_runner
         self.last_result: Optional[LikedSyncResult] = None
 
     def start(self) -> threading.Thread:
@@ -199,12 +224,12 @@ class LikedMusicLoop:
             time.sleep(max(60.0, self.settings.interval_hours * 3600))
 
     def run_once(self) -> LikedSyncResult:
-        result = run_liked_sync(self.settings, self.runner)
+        result = run_liked_sync(self.settings, self.runner, self.push_runner)
         self.last_result = result
         if result.error:
             log.warning("liked music sync failed: %s", result.error)
         else:
-            log.info("liked music sync: %d new song(s)", len(result.new_titles))
+            log.info("liked music sync: %d new song(s), %d uploaded", len(result.new_titles), result.pushed)
         return result
 
 
