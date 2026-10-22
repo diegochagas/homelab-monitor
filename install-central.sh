@@ -76,6 +76,7 @@ else
 fi
 
 # shellcheck disable=SC1091
+# shellcheck source=/dev/null  # filtered KEY=VALUE lines from monitor.env
 source <(grep -E '^(TELEGRAM_BOT_TOKEN|TELEGRAM_CHAT_ID|REGISTRATION_KEY|LISTEN_PORT)=' monitor.env)
 for var in TELEGRAM_BOT_TOKEN TELEGRAM_CHAT_ID REGISTRATION_KEY; do
     if [[ -z "${!var:-}" ]]; then

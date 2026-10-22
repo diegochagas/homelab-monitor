@@ -40,6 +40,7 @@ if [[ ! -f monitor.env ]]; then
 fi
 
 # shellcheck disable=SC1091
+# shellcheck source=/dev/null  # filtered KEY=VALUE lines from monitor.env
 source <(grep -E '^(NODE_NAME|CENTRAL_URL|AGENT_ID|AGENT_TOKEN|REGISTRATION_KEY|BACKUP_LOG_DIR)=' monitor.env || true)
 
 set_var() {

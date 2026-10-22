@@ -82,6 +82,44 @@ class Config:
     backup_log_dir: str = field(default_factory=lambda: _env("BACKUP_LOG_DIR"))
     backup_max_age_hours: int = field(default_factory=lambda: _int("BACKUP_MAX_AGE_HOURS", 48))
 
+    # Liked music sync (agent): download new YouTube Music likes into a folder.
+    # Off unless LIKED_MUSIC_DIR is set. LM is YouTube's id for every account's
+    # own Liked Music playlist, not a personal value.
+    liked_music_dir: str = field(default_factory=lambda: _env("LIKED_MUSIC_DIR"))
+    liked_music_playlist: str = field(
+        default_factory=lambda: _env("LIKED_MUSIC_PLAYLIST", "https://music.youtube.com/playlist?list=LM")
+    )
+    liked_music_browser: str = field(default_factory=lambda: _env("LIKED_MUSIC_BROWSER", "firefox"))
+    liked_music_ytdlp: str = field(default_factory=lambda: _env("LIKED_MUSIC_YTDLP", "yt-dlp"))
+    liked_music_interval_hours: float = field(default_factory=lambda: _float("LIKED_MUSIC_INTERVAL_HOURS", 6))
+    liked_music_timeout_minutes: int = field(default_factory=lambda: _int("LIKED_MUSIC_TIMEOUT_MINUTES", 120))
+    liked_music_extra_path: str = field(default_factory=lambda: _env("LIKED_MUSIC_EXTRA_PATH"))
+    # Optional upload of the downloads to the music server (rsync over SSH,
+    # e.g. user@server:/path/Music/). Local copies are removed only after
+    # rsync confirms each transfer; LIKED_MUSIC_DIR keeps the archive.
+    liked_music_push_target: str = field(default_factory=lambda: _env("LIKED_MUSIC_PUSH_TARGET"))
+    liked_music_push_rsync_path: str = field(default_factory=lambda: _env("LIKED_MUSIC_PUSH_RSYNC_PATH"))
+    liked_music_push_chmod: str = field(default_factory=lambda: _env("LIKED_MUSIC_PUSH_CHMOD"))
+    # Unlike sync: songs that leave Liked Music are removed from the server
+    # playlists and their files deleted. Off unless LIKED_MUSIC_REMOVE_UNLIKED=true;
+    # more than LIKED_MUSIC_MAX_REMOVALS vanishing at once deletes nothing.
+    liked_music_remove_unliked: bool = field(
+        default_factory=lambda: _env("LIKED_MUSIC_REMOVE_UNLIKED", "false").lower() in ("1", "true", "yes")
+    )
+    liked_music_max_removals: int = field(default_factory=lambda: _int("LIKED_MUSIC_MAX_REMOVALS", 25))
+    # Optional playlist servers (each off unless its URL is set). *_DIR is the
+    # music folder as that server sees it (containers mount it elsewhere).
+    liked_music_jellyfin_url: str = field(default_factory=lambda: _env("LIKED_MUSIC_JELLYFIN_URL").rstrip("/"))
+    liked_music_jellyfin_api_key: str = field(default_factory=lambda: _env("LIKED_MUSIC_JELLYFIN_API_KEY"))
+    liked_music_jellyfin_user: str = field(default_factory=lambda: _env("LIKED_MUSIC_JELLYFIN_USER"))
+    liked_music_jellyfin_dir: str = field(default_factory=lambda: _env("LIKED_MUSIC_JELLYFIN_DIR"))
+    liked_music_jellyfin_playlist: str = field(default_factory=lambda: _env("LIKED_MUSIC_JELLYFIN_PLAYLIST"))
+    liked_music_swing_url: str = field(default_factory=lambda: _env("LIKED_MUSIC_SWING_URL").rstrip("/"))
+    liked_music_swing_user: str = field(default_factory=lambda: _env("LIKED_MUSIC_SWING_USER"))
+    liked_music_swing_password: str = field(default_factory=lambda: _env("LIKED_MUSIC_SWING_PASSWORD"))
+    liked_music_swing_dir: str = field(default_factory=lambda: _env("LIKED_MUSIC_SWING_DIR"))
+    liked_music_swing_playlist: str = field(default_factory=lambda: _env("LIKED_MUSIC_SWING_PLAYLIST"))
+
     def host_path(self, path):
         """Map a host filesystem path to where it is visible from here."""
         if not self.host_root:
