@@ -6,6 +6,10 @@ signed-in browser's cookies (the Liked Music playlist is private), walks the
 playlist newest first and stops at the first song already in the folder's
 download archive (--break-on-existing), so a run with nothing new takes seconds.
 
+After the download (and upload, if configured) liked_music_reconcile adds the
+new songs to the server playlists and, with LIKED_MUSIC_REMOVE_UNLIKED=true,
+removes songs that were unliked.
+
 One-off run (prints what it downloaded):
     python3 -m homelab_monitor.liked_music monitor.env --once
 """
@@ -18,14 +22,17 @@ import sys
 import threading
 import time
 from dataclasses import asdict, dataclass, field
-from typing import Callable, List, Optional
+from typing import Callable, Dict, List, Optional, Tuple
 
 from .config import Config, load_env_file
 from .liked_music_push import PushSettings, push_staged_songs
+from .liked_music_reconcile import reconcile_library
+from .liked_music_servers import UnlikeSettings, build_reconcile_deps, unlike_settings_from_config
+from .liked_music_state import ARCHIVE_NAME, record_downloads
+from .liked_music_ytdlp_output import printed_downloads, read_archive_ids, ytdlp_failure_reason
 
 log = logging.getLogger("liked_music")
 
-ARCHIVE_NAME = ".archive.txt"
 LOCK_NAME = ".liked-music.lock"
 MAX_REPORTED_TITLES = 10
 # Same layout as the manual download script: byte-limited names because long
@@ -47,6 +54,8 @@ class LikedMusicSettings:
     push_target: str = ""
     push_rsync_path: str = ""
     push_chmod: str = ""
+    unlike: UnlikeSettings = field(default_factory=UnlikeSettings)
+    unlike_error: str = ""  # half-configured server: downloads go on, reconcile is skipped
 
 
 @dataclass
@@ -54,6 +63,8 @@ class LikedSyncResult:
     checked_at: float
     new_titles: List[str] = field(default_factory=list)
     pushed: int = 0
+    unliked: List[str] = field(default_factory=list)
+    playlist_added: Dict[str, int] = field(default_factory=dict)
     error: Optional[str] = None
 
     def to_snapshot(self) -> dict:
@@ -61,16 +72,18 @@ class LikedSyncResult:
         summary = asdict(self)
         summary["new_count"] = len(self.new_titles)
         summary["new_titles"] = self.new_titles[:MAX_REPORTED_TITLES]
+        summary["unliked"] = self.unliked[:MAX_REPORTED_TITLES]
         return summary
 
 
 def settings_from_config(cfg: Config) -> Optional[LikedMusicSettings]:
-    """Build settings, or None when LIKED_MUSIC_DIR is unset (feature off).
+    """Settings, or None when LIKED_MUSIC_DIR is unset (feature off).
 
     Example: settings_from_config(Config()) -> LikedMusicSettings(folder=...)
     """
     if not cfg.liked_music_dir:
         return None
+    unlike, unlike_error = _unlike_or_error(cfg)
     return LikedMusicSettings(
         folder=cfg.liked_music_dir,
         playlist_url=cfg.liked_music_playlist,
@@ -82,7 +95,15 @@ def settings_from_config(cfg: Config) -> Optional[LikedMusicSettings]:
         push_target=cfg.liked_music_push_target,
         push_rsync_path=cfg.liked_music_push_rsync_path,
         push_chmod=cfg.liked_music_push_chmod,
+        unlike=unlike, unlike_error=unlike_error,
     )
+
+
+def _unlike_or_error(cfg: Config) -> Tuple[UnlikeSettings, str]:
+    try:
+        return unlike_settings_from_config(cfg), ""
+    except ValueError as error:
+        return UnlikeSettings(), str(error)
 
 
 def build_ytdlp_command(settings: LikedMusicSettings) -> List[str]:
@@ -99,18 +120,9 @@ def build_ytdlp_command(settings: LikedMusicSettings) -> List[str]:
         "--sleep-requests", "0.3", "--sleep-interval", "1", "--max-sleep-interval", "3",
         "--download-archive", os.path.join(folder, ARCHIVE_NAME),
         "-o", os.path.join(folder, OUTPUT_TEMPLATE),
-        "--print", "after_move:%(title)s",
+        "--print", "after_move:%(id)s\t%(filepath)s",
         settings.playlist_url,
     ]
-
-
-def read_archive_ids(folder: str) -> set:
-    """Video ids already downloaded ("youtube <id>" lines of the archive)."""
-    path = os.path.join(folder, ARCHIVE_NAME)
-    if not os.path.isfile(path):
-        return set()
-    with open(path, encoding="utf-8") as archive:
-        return {line.split()[-1] for line in archive if line.strip()}
 
 
 def ytdlp_environment(extra_path: str) -> dict:
@@ -143,7 +155,27 @@ def run_liked_sync(
     with lock:
         _download_new(settings, runner, result)
         _push_if_configured(settings, push_runner, result)
+        _reconcile(settings, push_runner, result)
         return result
+
+
+def _reconcile(settings: LikedMusicSettings, runner: Runner, result: LikedSyncResult) -> None:
+    """Playlist adds and unlike removals; their errors join the run's error."""
+    if settings.unlike_error:
+        _add_errors(result, [f"playlist/unlike sync skipped: {settings.unlike_error}"])
+        return
+    ytdlp = [settings.ytdlp_bin, settings.browser, settings.playlist_url]
+    deps = build_reconcile_deps(settings.folder, ytdlp, settings.push_target, settings.unlike,
+                                ytdlp_environment(settings.extra_path), runner)
+    outcome = reconcile_library(deps)
+    result.unliked = outcome.unliked
+    result.playlist_added = outcome.playlist_added
+    _add_errors(result, outcome.errors)
+
+
+def _add_errors(result: LikedSyncResult, errors: List[str]) -> None:
+    for error in errors:
+        result.error = f"{result.error}; {error}" if result.error else error
 
 
 def _push_if_configured(settings: LikedMusicSettings, push_runner: Runner, result: LikedSyncResult) -> None:
@@ -154,7 +186,7 @@ def _push_if_configured(settings: LikedMusicSettings, push_runner: Runner, resul
     outcome = push_staged_songs(push, push_runner)
     result.pushed = outcome.pushed
     if outcome.error:
-        result.error = f"{result.error}; {outcome.error}" if result.error else outcome.error
+        _add_errors(result, [outcome.error])
 
 
 def _try_lock(folder: str):
@@ -182,25 +214,11 @@ def _download_new(settings: LikedMusicSettings, runner: Runner, result: LikedSyn
         result.error = f"yt-dlp did not finish within {settings.timeout_minutes} minutes"
     new_ids = read_archive_ids(settings.folder) - before
     if result.error is None:
-        result.new_titles = _printed_titles(completed.stdout)[: len(new_ids)] or sorted(new_ids)
-        result.error = _failure_reason(completed, new_ids)
+        downloads = printed_downloads(completed.stdout, new_ids)
+        record_downloads(settings.folder, downloads)
+        result.new_titles = [os.path.splitext(name)[0] for name in downloads.values()] or sorted(new_ids)
+        result.error = ytdlp_failure_reason(completed, new_ids)
     return result
-
-
-def _printed_titles(stdout: Optional[str]) -> List[str]:
-    return [line.strip() for line in (stdout or "").splitlines() if line.strip()]
-
-
-def _failure_reason(completed: subprocess.CompletedProcess, new_ids: set) -> Optional[str]:
-    """yt-dlp exits 101 when --break-on-existing stops it (the normal end of a
-    run) and 1 when single videos fail (unavailable, private). Exit 1 is only a
-    failure if nothing got through and stderr shows an error (e.g. expired cookies)."""
-    if completed.returncode in (0, 101) or new_ids:
-        return None
-    errors = [line for line in (completed.stderr or "").splitlines() if line.startswith("ERROR")]
-    if not errors:
-        return None
-    return f"yt-dlp exited {completed.returncode}: {errors[-1][:200]}"
 
 
 class LikedMusicLoop:

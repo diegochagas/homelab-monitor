@@ -31,6 +31,7 @@ failed backups.
 │   └─ SQLite state                 │        │   optional: every 6 h download │
 │                                   │        │   new YouTube Music likes      │
 │                                   │        │   (yt-dlp → music folder)      │
+│                                   │        │   + playlist sync, unlikes     │
 └───────────────┬───────────────────┘        └────────────────────────────────┘
                 │ alerts, replies
                 ▼
@@ -41,7 +42,7 @@ failed backups.
 | ----- | ------- | ------------ |
 | `homelab_monitor.bot` | Central server, as a Docker container | Telegram commands, alerts, endpoint for agents |
 | `homelab_monitor.agent` | Any Linux machine, systemd user service | Pushes metrics (and the last backup result) to the central |
-| `homelab_monitor.liked_music` | Inside the agent, optional | Downloads songs newly liked on YouTube Music into a folder |
+| `homelab_monitor.liked_music` | Inside the agent, optional | Downloads songs newly liked on YouTube Music into a folder, keeps the server playlists in step and (opt-in) deletes unliked songs |
 
 The central runs as a container on purpose: appliance-style distros (ZimaOS,
 CasaOS, …) keep `/etc` and root's crontab on a system partition that OTA
@@ -304,7 +305,8 @@ default `firefox`), walks the playlist newest first and stops at the first song
 already in the folder's `.archive.txt`. Songs are saved in their original
 format (Opus or m4a) with cover art and tags, named `Artist - Title`.
 
-- Nothing is ever deleted or overwritten; unliking a song keeps the file.
+- Nothing is overwritten. Unliked songs are deleted only when you opt in
+  (see below); otherwise unliking a song keeps the file.
 - Videos YouTube no longer serves are skipped and retried on the next run.
 - A lock file stops two syncs from running at once in the same folder.
 - The last result (time, new songs, uploads, error) travels in the
@@ -317,6 +319,30 @@ format (Opus or m4a) with cover art and tags, named `Artist - Title`.
 - Needs `yt-dlp`, `ffmpeg` and a JavaScript runtime for yt-dlp (deno); put
   the runtime's directory in `LIKED_MUSIC_EXTRA_PATH` because the user
   service doesn't see your shell's PATH.
+
+### Playlists and unlikes
+
+Each download is recorded in `.library-index.json` (video id → file) in
+`LIKED_MUSIC_DIR`. Two optional steps run after every sync:
+
+- **New likes join the server playlists.** With `LIKED_MUSIC_JELLYFIN_*` set
+  they go to the top of the Jellyfin playlist, with `LIKED_MUSIC_SWING_*` to
+  the end of the Swing Music one (Swing can't reorder). A song the server
+  hasn't scanned yet stays queued in `.playlist-pending.json` and is retried.
+- **Unlikes are removed everywhere** (`LIKED_MUSIC_REMOVE_UNLIKED=true`). The
+  agent lists the whole Liked Music playlist and compares it with the list it
+  saved last time (`.liked-ids.json`). A song that dropped out is removed from
+  every playlist on both servers, its file is deleted on the push target (or
+  in `LIKED_MUSIC_DIR`), and its archive line is dropped so liking it again
+  downloads it again. Players that sync from the server (Finamp downloads)
+  drop their copy on their next sync.
+
+Safety rails: only songs the sync downloaded *and* saw in Liked Music count,
+so songs that are in other playlists only are never touched. The first
+listing only saves the list. Nothing is deleted when the listing fails, when a
+playlist removal fails (retried next run), or when more than
+`LIKED_MUSIC_MAX_REMOVALS` (default 25) songs vanish at once, which usually
+means a truncated listing rather than real unlikes.
 
 Run it once by hand:
 
@@ -335,6 +361,14 @@ homelab-monitor/
 │   ├── agent.py        # agent: heartbeat loop
 │   ├── liked_music.py  # agent: download new YouTube Music likes
 │   ├── liked_music_push.py  # agent: upload them to the music server
+│   ├── liked_music_reconcile.py  # agent: playlist adds + unlike removals
+│   ├── liked_music_servers.py  # agent: builds the clients from the config
+│   ├── liked_music_ytdlp_output.py  # agent: parse a yt-dlp run's output
+│   ├── liked_music_state.py  # agent: index, liked list, playlist queue files
+│   ├── liked_music_remote.py  # agent: list Liked Music, delete over SSH
+│   ├── jellyfin_playlists.py  # agent: Jellyfin playlist API
+│   ├── swing_playlists.py  # agent: Swing Music playlist API
+│   ├── http_json.py    # JSON-over-HTTP helper with timeouts
 │   ├── commands.py     # /command handlers
 │   ├── formatting.py   # Telegram message rendering
 │   ├── alerts.py       # confirmation / rate limit / recovery logic
@@ -369,6 +403,8 @@ homelab-monitor/
 | `/temperature` says no sensor | Nothing under `/sys/class/hwmon` — normal on some VMs; not an error |
 | `/ports` shows no process names | The container needs `CAP_SYS_PTRACE` and `apparmor=unconfined` (both set by the compose file) |
 | Stale SERVER BACKUP alert | The server-side backup job stopped running — check its scheduler (`sudo crontab -l`) |
+| Liked music: "playlist/unlike sync skipped" | A `LIKED_MUSIC_JELLYFIN_*` or `LIKED_MUSIC_SWING_*` value is empty while its URL is set; the message names it |
+| Liked music: "songs left Liked Music at once" | More than `LIKED_MUSIC_MAX_REMOVALS` vanished in one listing; nothing was deleted. If you really unliked that many, raise the limit for one run |
 | Liked music not downloading | `python3 -m homelab_monitor.liked_music monitor.env --once` — "Sign in to confirm" means the browser's YouTube session expired (open YouTube Music in it once); "not found" means set `LIKED_MUSIC_YTDLP` |
 | Container name already in use | The installer replaces a stray `homelab-monitor` container automatically; otherwise `sudo docker rm -f homelab-monitor` |
 

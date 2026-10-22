@@ -87,7 +87,7 @@ class FakeYtDlpOneSong:
         stage(folder, "New - Song.opus")
         with open(os.path.join(folder, ARCHIVE_NAME), "a", encoding="utf-8") as archive:
             archive.write("youtube newSong0001\n")
-        return subprocess.CompletedProcess(command, 101, "New Song\n", "")
+        return subprocess.CompletedProcess(command, 101, f"newSong0001\t{folder}/New - Song.opus\n", "")
 
 
 class SyncThenPushTest(unittest.TestCase):
@@ -96,8 +96,9 @@ class SyncThenPushTest(unittest.TestCase):
             settings = LikedMusicSettings(folder, "https://music.youtube.com/playlist?list=LM", "firefox",
                                           "yt-dlp", 6, 5, "", push_target="u@h:/music/")
             result = run_liked_sync(settings, FakeYtDlpOneSong(), FakeRsync())
-            self.assertEqual((result.new_titles, result.pushed, result.error), (["New Song"], 1, None))
-            self.assertEqual(sorted(os.listdir(folder)), sorted([ARCHIVE_NAME, ".liked-music.lock"]))
+            self.assertEqual((result.new_titles, result.pushed, result.error), (["New - Song"], 1, None))
+            self.assertEqual([name for name in os.listdir(folder) if not name.startswith(".")], [])
+            self.assertIn(ARCHIVE_NAME, os.listdir(folder))
 
     def test_no_target_keeps_songs_local(self) -> None:
         with tempfile.TemporaryDirectory() as folder:

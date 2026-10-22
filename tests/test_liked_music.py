@@ -7,6 +7,8 @@ import tempfile
 import unittest
 
 from homelab_monitor import liked_music
+from homelab_monitor.liked_music_state import INDEX_NAME, PENDING_NAME, load_state
+from homelab_monitor.liked_music_ytdlp_output import printed_downloads
 from homelab_monitor.liked_music import (
     ARCHIVE_NAME,
     LOCK_NAME,
@@ -35,7 +37,7 @@ class FakeYtDlp:
         with open(os.path.join(self.folder, ARCHIVE_NAME), "a", encoding="utf-8") as archive:
             for video_id, _title in self.new_songs:
                 archive.write(f"youtube {video_id}\n")
-        stdout = "".join(f"{title}\n" for _id, title in self.new_songs)
+        stdout = "".join(f"{vid}\t{self.folder}/{title}.opus\n" for vid, title in self.new_songs)
         return subprocess.CompletedProcess(command, self.returncode, stdout, self.stderr)
 
 
@@ -61,6 +63,23 @@ class LikedMusicSyncTest(unittest.TestCase):
         result = run_liked_sync(make_settings(self.folder), fake)
         self.assertIsNone(result.error)
         self.assertEqual(result.new_titles, ["Song A", "Song B"])
+
+    def test_downloads_are_indexed_and_queued_for_playlists(self) -> None:
+        fake = FakeYtDlp(self.folder, [("newSong0001", "Song A")])
+        run_liked_sync(make_settings(self.folder), fake)
+        self.assertEqual(load_state(self.folder, INDEX_NAME, {}), {"newSong0001": "Song A.opus"})
+        self.assertEqual(load_state(self.folder, PENDING_NAME, {})["jellyfin"], ["newSong0001"])
+
+    def test_printed_lines_of_skipped_videos_are_ignored(self) -> None:
+        stdout = "abc\t/m/A - B.opus\nzzz\t/m/Other.opus\nnoise\n"
+        self.assertEqual(printed_downloads(stdout, {"abc"}), {"abc": "A - B.opus"})
+
+    def test_half_configured_server_keeps_downloading_and_reports(self) -> None:
+        settings = make_settings(self.folder)
+        settings.unlike_error = "LIKED_MUSIC_SWING_URL is set but LIKED_MUSIC_SWING_PASSWORD is empty"
+        result = run_liked_sync(settings, FakeYtDlp(self.folder, [("newSong0001", "Song A")]))
+        self.assertEqual(result.new_titles, ["Song A"])
+        self.assertIn("playlist/unlike sync skipped: LIKED_MUSIC_SWING_URL", result.error)
 
     def test_nothing_new_is_not_an_error(self) -> None:
         result = run_liked_sync(make_settings(self.folder), FakeYtDlp(self.folder))

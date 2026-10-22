@@ -39,7 +39,9 @@ Formatter: none enforced yet (ruff isn't installed on the machines); keep PEP 8.
 - Logging: plain text via `logging` (journald / docker logs read it).
 - Defensive code this repo needs (implement these; flag anything else instead of adding it silently):
   timeouts on every HTTP call and subprocess (Telegram, heartbeat, yt-dlp);
-  lock file against concurrent liked-music syncs; never delete or overwrite files
-  in the music folder (yt-dlp keeps its default no-overwrite behaviour);
+  lock file against concurrent liked-music syncs; never overwrite files in the
+  music folder (yt-dlp keeps its default no-overwrite behaviour); delete music
+  only through liked_music_reconcile (opt-in switch, LIKED_MUSIC_MAX_REMOVALS cap,
+  only songs the sync indexed and saw unliked, playlists first, plain filenames);
   graceful "unavailable" instead of a crash when a sensor, socket or log is missing.
 - README has a "How it works" architecture diagram; update it when the shape changes.
