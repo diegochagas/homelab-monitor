@@ -7,6 +7,9 @@
 - .playlist-pending.json  {"jellyfin": [ids], "swing": [ids]} downloads not yet
                         added to the servers' liked playlists (the server may not
                         have indexed the file yet), retried on every run.
+- .removal-pending.json  {video_id: filename} songs that left Liked Music and
+                        wait for the owner's confirmation (Telegram) before anything
+                        is deleted; a re-like drops them from this queue.
 
 Writes go to a temporary file first and are renamed into place, so a crash
 never leaves half a JSON file behind.
@@ -20,6 +23,7 @@ INDEX_NAME = ".library-index.json"
 LIKED_SNAPSHOT_NAME = ".liked-ids.json"
 PENDING_NAME = ".playlist-pending.json"
 ARCHIVE_NAME = ".archive.txt"
+REMOVAL_PENDING_NAME = ".removal-pending.json"
 
 
 def load_state(folder: str, name: str, default: Any) -> Any:
@@ -81,3 +85,11 @@ def _drop_archive_lines(folder: str, gone: set) -> None:
     with open(temporary, "w", encoding="utf-8") as archive:
         archive.writelines(kept)
     os.replace(temporary, path)
+
+
+def pending_removals(folder: str) -> Dict[str, str]:
+    """{video_id: filename} of unliked songs waiting for confirmation.
+
+    Example: pending_removals("/staging") -> {"dQw4w9WgXcQ": "A - B.opus"}
+    """
+    return load_state(folder, REMOVAL_PENDING_NAME, {})

@@ -85,6 +85,9 @@ volume survives updates and reboots.
 | `/temperature [server]` | Every hardware sensor |
 | `/network [server]` | Interfaces and IPv4 addresses |
 | `/ports` | Listening TCP ports on the central, with the owning process |
+| `/unliked` | Songs that left your YouTube Music likes and wait for a decision |
+| `/unliked_delete [server]` | Delete those songs from the playlists and the music server |
+| `/unliked_keep [server]` | Keep their files and clear the queue |
 | `/rename old new` | Rename a machine (its id and token stay the same) |
 | `/remove server` | Unregister an agent |
 | `/forget container [server]` | Stop tracking a container you removed on purpose |
@@ -330,20 +333,31 @@ Each download is recorded in `.library-index.json` (video id → file) in
   the Swing Music one (Swing 2.1.4 stores playlists unordered, so there is no
   "top" there). A song the server
   hasn't scanned yet stays queued in `.playlist-pending.json` and is retried.
-- **Unlikes are removed everywhere** (`LIKED_MUSIC_REMOVE_UNLIKED=true`). The
+- **Unlikes wait for your answer** (`LIKED_MUSIC_REMOVE_UNLIKED=true`). The
   agent lists the whole Liked Music playlist and compares it with the list it
-  saved last time (`.liked-ids.json`). A song that dropped out is removed from
-  every playlist on both servers, its file is deleted on the push target (or
-  in `LIKED_MUSIC_DIR`), and its archive line is dropped so liking it again
-  downloads it again. Players that sync from the server (Finamp downloads)
-  drop their copy on their next sync.
+  saved last time (`.liked-ids.json`). A song that dropped out goes into
+  `.removal-pending.json`; nothing is deleted. The heartbeat reports the
+  queue and the bot sends one Telegram message per new batch:
+  - `/unliked` shows what is waiting.
+  - `/unliked_delete [server]` removes those songs from every playlist on
+    both servers, deletes their files on the push target (or in
+    `LIKED_MUSIC_DIR`) and drops their archive lines, so liking one again
+    downloads it again. Players that sync from the server (Finamp downloads)
+    drop their copy on their next sync.
+  - `/unliked_keep [server]` keeps the files and clears the queue.
+  - Liking a song again before you answer takes it out of the queue.
+
+  Why ask: YouTube can also drop a removed or private video from the list,
+  and that looks exactly like an unlike. Such a file can't be downloaded
+  again, so a person decides.
 
 Safety rails: only songs the sync downloaded *and* saw in Liked Music count,
 so songs that are in other playlists only are never touched. The first
-listing only saves the list. Nothing is deleted when the listing fails, when a
-playlist removal fails (retried next run), or when more than
-`LIKED_MUSIC_MAX_REMOVALS` (default 25) songs vanish at once, which usually
-means a truncated listing rather than real unlikes.
+listing only saves the list. Nothing is queued when the listing fails or when
+more than `LIKED_MUSIC_MAX_REMOVALS` (default 25) songs vanish at once, which
+usually means a truncated listing rather than real unlikes. A failed playlist
+removal deletes nothing and keeps the song queued; the bot repeats your answer
+on every heartbeat until the agent has carried it out.
 
 Run it once by hand:
 
@@ -362,7 +376,9 @@ homelab-monitor/
 │   ├── agent.py        # agent: heartbeat loop
 │   ├── liked_music.py  # agent: download new YouTube Music likes
 │   ├── liked_music_push.py  # agent: upload them to the music server
-│   ├── liked_music_reconcile.py  # agent: playlist adds + unlike removals
+│   ├── liked_music_loop.py  # agent: sync timer + Telegram decision inbox
+│   ├── liked_music_reconcile.py  # agent: playlist adds, unlike queue, confirmed deletes
+│   ├── unlike_confirmations.py  # central: asks on Telegram, relays the answer
 │   ├── liked_music_servers.py  # agent: builds the clients from the config
 │   ├── liked_music_ytdlp_output.py  # agent: parse a yt-dlp run's output
 │   ├── liked_music_state.py  # agent: index, liked list, playlist queue files

@@ -75,7 +75,7 @@ def make_handler(cfg, state):
                 return
 
             state.store_snapshot(node_id, snapshot)
-            self._reply(200, {"ok": True, "name": node["name"]})
+            self._reply(200, {"ok": True, "name": node["name"], **self.server.after_snapshot(node, snapshot)})
 
     return Handler
 
@@ -84,9 +84,21 @@ class AgentServer(ThreadingHTTPServer):
     daemon_threads = True
     allow_reuse_address = True
 
-    def __init__(self, cfg, state, on_registered):
+    def __init__(self, cfg, state, on_registered, unlikes=None):
         super().__init__((cfg.listen_host, cfg.listen_port), make_handler(cfg, state))
         self.on_registered = on_registered
+        self.unlikes = unlikes  # UnlikeConfirmations, or None
+
+    def after_snapshot(self, node, snapshot):
+        """Extra reply fields for the agent (unlike decisions); never fails the heartbeat."""
+        if self.unlikes is None:
+            return {}
+        try:
+            self.unlikes.on_snapshot(node, snapshot)
+            return self.unlikes.reply_for(node["id"])
+        except Exception:  # noqa: BLE001 - a bad snapshot must not reject the heartbeat
+            log.exception("unlike confirmation failed for %s", node["name"])
+            return {}
 
     def start(self):
         thread = threading.Thread(target=self.serve_forever, name="agent-server", daemon=True)

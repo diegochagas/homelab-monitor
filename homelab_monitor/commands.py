@@ -24,6 +24,9 @@ COMMANDS = [
     ("remove", "Unregister a server"),
     ("forget", "Stop tracking a removed container"),
     ("integrate", "How to add a server"),
+    ("unliked", "Unliked songs waiting for a decision"),
+    ("unliked_delete", "Delete the waiting unliked songs [server]"),
+    ("unliked_keep", "Keep the waiting unliked songs [server]"),
     ("restart", "Restart the bot"),
     ("clear", "Delete recent bot messages"),
     ("version", "Bot version"),
@@ -37,6 +40,7 @@ class Commands:
         self.state = state
         self.fresh_central_snapshot = fresh_central_snapshot  # callable() -> snapshot
         self.sent_messages = []  # (chat_id, message_id) for /clear
+        self.unlikes = None  # UnlikeConfirmations, set by the bot
 
     # ---------------------------------------------------------- helpers
 
@@ -186,6 +190,15 @@ class Commands:
             "",
             "The agent registers itself on its first heartbeat and shows up in /servers.",
         ])
+
+    def cmd_unliked(self, _args):
+        return self.unlikes.status() if self.unlikes else None
+
+    def cmd_unliked_delete(self, args):
+        return self.unlikes.decide("delete", args[0] if args else None) if self.unlikes else None
+
+    def cmd_unliked_keep(self, args):
+        return self.unlikes.decide("keep", args[0] if args else None) if self.unlikes else None
 
     def cmd_restart(self, _args):
         return "__restart__"
