@@ -9,7 +9,7 @@ from homelab_monitor.commands import Commands
 from homelab_monitor.server import AgentServer
 from homelab_monitor.unlike_confirmations import UnlikeConfirmations
 
-NODE = {"id": "48b8fd97-0000", "name": "mint", "role": "agent"}
+NODE = {"id": "0123abcd-0000", "name": "mint", "role": "agent"}
 
 
 def snapshot_with(*songs) -> dict:
