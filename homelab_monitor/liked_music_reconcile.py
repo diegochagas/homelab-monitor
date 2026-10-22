@@ -1,18 +1,22 @@
 """Keep the music server in step with YouTube Music after each download run.
 
 1. New likes: songs downloaded earlier are added to the "liked" playlists on
-   Jellyfin (top, newest first) and Swing (end). A song the server hasn't
-   indexed yet stays queued and is retried next run.
+   Jellyfin (top, newest first) and Swing (unordered). A song the server
+   hasn't indexed yet stays queued and is retried next run.
 2. Unlikes: the full Liked Music list is compared with the one seen last time.
-   Songs that dropped out and that the sync put in the library are removed
-   from every playlist on both servers, then their files are deleted, then
-   they are forgotten (index, queues, download archive) so a re-like
-   downloads them again. Finamp drops the phone copy on its next sync.
+   Songs that dropped out and that the sync put in the library are QUEUED in
+   .removal-pending.json; nothing is deleted. The heartbeat reports the queue,
+   the central bot asks on Telegram, and the owner's answer comes back in a
+   heartbeat reply. YouTube can also drop a removed or private video from the
+   list, which looks exactly like an unlike, so a person decides.
+3. apply_removal_decisions: "delete" removes the song from every playlist on
+   both servers, deletes the file, then forgets it (index, queues, download
+   archive) so a re-like downloads it again; "keep" only leaves the queue.
 
-Safety: nothing is deleted when the listing fails, when it is the first
-listing (no earlier list to compare), when more than LIKED_MUSIC_MAX_REMOVALS
-songs vanish at once (a truncated listing, not real unlikes), or when any
-playlist removal fails (retried next run with the old list kept).
+Safety: nothing is queued when the listing fails, on the first listing (no
+earlier list to compare) or when more than LIKED_MUSIC_MAX_REMOVALS songs
+vanish at once (a truncated listing). A failed playlist removal deletes
+nothing and leaves the song queued.
 """
 
 import os
@@ -20,8 +24,8 @@ from dataclasses import dataclass, field
 from typing import Callable, Dict, List, Optional
 
 from .liked_music_remote import LikedListingError
-from .liked_music_state import (INDEX_NAME, LIKED_SNAPSHOT_NAME, PENDING_NAME, forget_songs,
-                                load_state, save_state)
+from .liked_music_state import (INDEX_NAME, LIKED_SNAPSHOT_NAME, PENDING_NAME, REMOVAL_PENDING_NAME,
+                                forget_songs, load_state, pending_removals, save_state)
 
 
 @dataclass
@@ -37,7 +41,9 @@ class ReconcileDeps:
 
 @dataclass
 class ReconcileOutcome:
-    unliked: List[str] = field(default_factory=list)
+    unliked: List[str] = field(default_factory=list)  # deleted after confirmation
+    queued: List[str] = field(default_factory=list)  # waiting for confirmation
+    kept: List[str] = field(default_factory=list)
     playlist_added: Dict[str, int] = field(default_factory=dict)
     errors: List[str] = field(default_factory=list)
 
@@ -56,7 +62,7 @@ def reconcile_library(deps: ReconcileDeps) -> ReconcileOutcome:
     except LikedListingError as error:
         outcome.errors.append(str(error))
         return outcome
-    _remove_unliked(deps, current, outcome)
+    _queue_unliked(deps, current, outcome)
     return outcome
 
 
@@ -86,20 +92,40 @@ def unliked_ids(previous: List[str], current: List[str], index: Dict[str, str]) 
     return [vid for vid in previous if vid not in still_liked and vid in index]
 
 
-def _remove_unliked(deps: ReconcileDeps, current: List[str], outcome: ReconcileOutcome) -> None:
+def _queue_unliked(deps: ReconcileDeps, current: List[str], outcome: ReconcileOutcome) -> None:
     previous: List[str] = load_state(deps.folder, LIKED_SNAPSHOT_NAME, [])
     index: Dict[str, str] = load_state(deps.folder, INDEX_NAME, {})
-    gone = unliked_ids(previous, current, index) if previous else []
+    pending = pending_removals(deps.folder)
+    gone = [vid for vid in (unliked_ids(previous, current, index) if previous else []) if vid not in pending]
     if len(gone) > deps.max_removals:
         outcome.errors.append(f"{len(gone)} songs left Liked Music at once (limit LIKED_MUSIC_MAX_REMOVALS="
-                              f"{deps.max_removals}); nothing deleted, check the listing")
+                              f"{deps.max_removals}); nothing queued, check the listing")
         return
-    names = [index[vid] for vid in gone]
-    if names and not _remove_everywhere(deps, names, outcome):
-        return
-    forget_songs(deps.folder, gone)
+    still_liked = set(current)
+    pending = {vid: name for vid, name in pending.items() if vid not in still_liked}  # re-liked
+    pending.update({vid: index[vid] for vid in gone})
+    save_state(deps.folder, REMOVAL_PENDING_NAME, pending)
     save_state(deps.folder, LIKED_SNAPSHOT_NAME, current)
-    outcome.unliked = names
+    outcome.queued = [index[vid] for vid in gone]
+
+
+def apply_removal_decisions(deps: ReconcileDeps, delete_ids: List[str], keep_ids: List[str]) -> ReconcileOutcome:
+    """Delete or keep queued songs; ids not in the queue are ignored (repeats are safe).
+
+    Example: apply_removal_decisions(deps, ["abc"], []).unliked -> ["A - B.opus"]
+    """
+    outcome = ReconcileOutcome()
+    pending = pending_removals(deps.folder)
+    to_delete = [vid for vid in dict.fromkeys(delete_ids) if vid in pending]
+    names = [pending[vid] for vid in to_delete]
+    if names and not _remove_everywhere(deps, names, outcome):
+        return outcome
+    forget_songs(deps.folder, to_delete)
+    to_keep = [vid for vid in dict.fromkeys(keep_ids) if vid in pending and vid not in to_delete]
+    left = {vid: name for vid, name in pending.items() if vid not in to_delete and vid not in to_keep}
+    save_state(deps.folder, REMOVAL_PENDING_NAME, left)
+    outcome.unliked, outcome.kept = names, [pending[vid] for vid in to_keep]
+    return outcome
 
 
 def _remove_everywhere(deps: ReconcileDeps, names: List[str], outcome: ReconcileOutcome) -> bool:
@@ -109,7 +135,7 @@ def _remove_everywhere(deps: ReconcileDeps, names: List[str], outcome: Reconcile
             if client is not None:
                 client.remove_files(names)
         deps.delete_files(names)
-    except Exception as error:  # noqa: BLE001 - keep the old list so the next run retries
+    except Exception as error:  # noqa: BLE001 - the song stays queued, so a repeated decision retries
         outcome.errors.append(f"removing {len(names)} unliked song(s) failed: {error}")
         return False
     for name in names:

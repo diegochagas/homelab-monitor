@@ -19,14 +19,13 @@ import logging
 import os
 import subprocess
 import sys
-import threading
 import time
 from dataclasses import asdict, dataclass, field
 from typing import Callable, Dict, List, Optional, Tuple
 
 from .config import Config, load_env_file
 from .liked_music_push import PushSettings, push_staged_songs
-from .liked_music_reconcile import reconcile_library
+from .liked_music_reconcile import ReconcileDeps, apply_removal_decisions, reconcile_library
 from .liked_music_servers import UnlikeSettings, build_reconcile_deps, unlike_settings_from_config
 from .liked_music_state import ARCHIVE_NAME, record_downloads
 from .liked_music_ytdlp_output import printed_downloads, read_archive_ids, ytdlp_failure_reason
@@ -64,6 +63,7 @@ class LikedSyncResult:
     new_titles: List[str] = field(default_factory=list)
     pushed: int = 0
     unliked: List[str] = field(default_factory=list)
+    queued: List[str] = field(default_factory=list)
     playlist_added: Dict[str, int] = field(default_factory=dict)
     error: Optional[str] = None
 
@@ -73,6 +73,7 @@ class LikedSyncResult:
         summary["new_count"] = len(self.new_titles)
         summary["new_titles"] = self.new_titles[:MAX_REPORTED_TITLES]
         summary["unliked"] = self.unliked[:MAX_REPORTED_TITLES]
+        summary["queued"] = self.queued[:MAX_REPORTED_TITLES]
         return summary
 
 
@@ -164,13 +165,37 @@ def _reconcile(settings: LikedMusicSettings, runner: Runner, result: LikedSyncRe
     if settings.unlike_error:
         _add_errors(result, [f"playlist/unlike sync skipped: {settings.unlike_error}"])
         return
-    ytdlp = [settings.ytdlp_bin, settings.browser, settings.playlist_url]
-    deps = build_reconcile_deps(settings.folder, ytdlp, settings.push_target, settings.unlike,
-                                ytdlp_environment(settings.extra_path), runner)
-    outcome = reconcile_library(deps)
-    result.unliked = outcome.unliked
+    outcome = reconcile_library(_reconcile_deps(settings, runner))
+    result.queued = outcome.queued
     result.playlist_added = outcome.playlist_added
     _add_errors(result, outcome.errors)
+
+
+def _reconcile_deps(settings: LikedMusicSettings, runner: Runner) -> ReconcileDeps:
+    ytdlp = [settings.ytdlp_bin, settings.browser, settings.playlist_url]
+    return build_reconcile_deps(settings.folder, ytdlp, settings.push_target, settings.unlike,
+                                ytdlp_environment(settings.extra_path), runner)
+
+
+def apply_decisions(settings: LikedMusicSettings, delete_ids: List[str], keep_ids: List[str],
+                    runner: Runner = subprocess.run) -> LikedSyncResult:
+    """Carry out the owner's Telegram answer for queued unlikes, under the sync lock.
+
+    Example: apply_decisions(settings, ["abc"], []).unliked -> ["A - B.opus"]
+    """
+    result = LikedSyncResult(checked_at=time.time())
+    if settings.unlike_error or not settings.unlike.remove_unliked:
+        result.error = settings.unlike_error or "LIKED_MUSIC_REMOVE_UNLIKED is off; decision ignored"
+        return result
+    lock = _try_lock(settings.folder)
+    if lock is None:
+        result.error = "liked-music sync running; decision retried after it"
+        return result
+    with lock:
+        outcome = apply_removal_decisions(_reconcile_deps(settings, runner), delete_ids, keep_ids)
+    result.unliked = outcome.unliked
+    _add_errors(result, outcome.errors)
+    return result
 
 
 def _add_errors(result: LikedSyncResult, errors: List[str]) -> None:
@@ -221,36 +246,6 @@ def _download_new(settings: LikedMusicSettings, runner: Runner, result: LikedSyn
     return result
 
 
-class LikedMusicLoop:
-    """Background thread that runs run_liked_sync every interval_hours."""
-
-    def __init__(self, settings: LikedMusicSettings, runner: Runner = subprocess.run,
-                 push_runner: Runner = subprocess.run):
-        self.settings = settings
-        self.runner = runner
-        self.push_runner = push_runner
-        self.last_result: Optional[LikedSyncResult] = None
-
-    def start(self) -> threading.Thread:
-        thread = threading.Thread(target=self._loop, name="liked-music", daemon=True)
-        thread.start()
-        return thread
-
-    def _loop(self) -> None:
-        while True:
-            self.run_once()
-            time.sleep(max(60.0, self.settings.interval_hours * 3600))
-
-    def run_once(self) -> LikedSyncResult:
-        result = run_liked_sync(self.settings, self.runner, self.push_runner)
-        self.last_result = result
-        if result.error:
-            log.warning("liked music sync failed: %s", result.error)
-        else:
-            log.info("liked music sync: %d new song(s), %d uploaded", len(result.new_titles), result.pushed)
-        return result
-
-
 def main() -> None:
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(name)s %(levelname)s %(message)s")
     if len(sys.argv) > 1 and not sys.argv[1].startswith("--"):
@@ -258,6 +253,8 @@ def main() -> None:
     settings = settings_from_config(Config())
     if settings is None:
         sys.exit("LIKED_MUSIC_DIR is not set: nothing to sync")
+    from .liked_music_loop import LikedMusicLoop  # the loop module imports this one
+
     result = LikedMusicLoop(settings).run_once()
     for title in result.new_titles:
         print(f"downloaded: {title}")

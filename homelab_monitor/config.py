@@ -100,9 +100,11 @@ class Config:
     liked_music_push_target: str = field(default_factory=lambda: _env("LIKED_MUSIC_PUSH_TARGET"))
     liked_music_push_rsync_path: str = field(default_factory=lambda: _env("LIKED_MUSIC_PUSH_RSYNC_PATH"))
     liked_music_push_chmod: str = field(default_factory=lambda: _env("LIKED_MUSIC_PUSH_CHMOD"))
-    # Unlike sync: songs that leave Liked Music are removed from the server
-    # playlists and their files deleted. Off unless LIKED_MUSIC_REMOVE_UNLIKED=true;
-    # more than LIKED_MUSIC_MAX_REMOVALS vanishing at once deletes nothing.
+    # Unlike sync: songs that leave Liked Music are queued and the central bot
+    # asks on Telegram; only a /unliked_delete answer removes them from the
+    # server playlists and deletes the files. Off unless
+    # LIKED_MUSIC_REMOVE_UNLIKED=true; more than LIKED_MUSIC_MAX_REMOVALS
+    # vanishing at once queues nothing.
     liked_music_remove_unliked: bool = field(
         default_factory=lambda: _env("LIKED_MUSIC_REMOVE_UNLIKED", "false").lower() in ("1", "true", "yes")
     )

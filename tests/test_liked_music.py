@@ -7,12 +7,12 @@ import tempfile
 import unittest
 
 from homelab_monitor import liked_music
+from homelab_monitor.liked_music_loop import LikedMusicLoop
 from homelab_monitor.liked_music_state import INDEX_NAME, PENDING_NAME, load_state
 from homelab_monitor.liked_music_ytdlp_output import printed_downloads
 from homelab_monitor.liked_music import (
     ARCHIVE_NAME,
     LOCK_NAME,
-    LikedMusicLoop,
     LikedMusicSettings,
     build_ytdlp_command,
     run_liked_sync,

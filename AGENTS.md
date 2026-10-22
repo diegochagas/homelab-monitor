@@ -41,7 +41,9 @@ Formatter: none enforced yet (ruff isn't installed on the machines); keep PEP 8.
   timeouts on every HTTP call and subprocess (Telegram, heartbeat, yt-dlp);
   lock file against concurrent liked-music syncs; never overwrite files in the
   music folder (yt-dlp keeps its default no-overwrite behaviour); delete music
-  only through liked_music_reconcile (opt-in switch, LIKED_MUSIC_MAX_REMOVALS cap,
-  only songs the sync indexed and saw unliked, playlists first, plain filenames);
+  only through liked_music_reconcile.apply_removal_decisions after the owner's
+  Telegram answer (opt-in switch, LIKED_MUSIC_MAX_REMOVALS cap, only songs the
+  sync indexed and saw unliked, playlists first, plain filenames); never delete
+  on detection alone, because YouTube dropping a removed video looks like an unlike;
   graceful "unavailable" instead of a crash when a sensor, socket or log is missing.
 - README has a "How it works" architecture diagram; update it when the shape changes.

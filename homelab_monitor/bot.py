@@ -18,6 +18,7 @@ from .config import Config, load_env_file
 from .state import State
 from .telegram import Telegram
 from .telegram import escape as e
+from .unlike_confirmations import UnlikeConfirmations
 
 log = logging.getLogger("bot")
 
@@ -29,6 +30,8 @@ class Bot:
         self.telegram = Telegram(cfg.bot_token)
         self.commands = Commands(cfg, self.state, self.central_snapshot)
         self.alerts = AlertEngine(cfg, self.state, self.notify)
+        self.unlikes = UnlikeConfirmations(cfg.data_dir, self.state, self.notify)
+        self.commands.unlikes = self.unlikes
         self._snapshot_lock = threading.Lock()
         self._snapshot = None
         self._snapshot_at = 0
@@ -188,7 +191,7 @@ class Bot:
             if node["role"] != "central" and node["name"].lower() in self.cfg.backup_only_nodes:
                 self.state.clear_alerts_except_backup(node["id"])
 
-        server = AgentServer(self.cfg, self.state, self.on_registered)
+        server = AgentServer(self.cfg, self.state, self.on_registered, self.unlikes)
         server.start()
         log.info("agent endpoint listening on %s:%s", self.cfg.listen_host, self.cfg.listen_port)
 

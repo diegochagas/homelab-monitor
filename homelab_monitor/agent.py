@@ -12,15 +12,16 @@ import urllib.request
 
 from . import VERSION, metrics
 from .config import Config, load_env_file
-from .liked_music import LikedMusicLoop, settings_from_config
+from .liked_music import settings_from_config
+from .liked_music_loop import LikedMusicLoop
 
 log = logging.getLogger("agent")
 
 
 def heartbeat(cfg, liked_loop=None):
     snapshot = metrics.snapshot(cfg)
-    if liked_loop is not None and liked_loop.last_result is not None:
-        snapshot["liked_music"] = liked_loop.last_result.to_snapshot()
+    if liked_loop is not None:
+        snapshot["liked_music"] = liked_loop.snapshot()
     payload = {
         "id": cfg.agent_id,
         "name": cfg.node_name,
@@ -53,6 +54,15 @@ def start_liked_music(cfg: Config, once: bool):
     return loop
 
 
+def beat(cfg, liked_loop=None):
+    """One heartbeat; hands any unlike decisions in the reply to the liked-music loop."""
+    result = heartbeat(cfg, liked_loop)
+    log.info("heartbeat ok (registered as %s)", result.get("name"))
+    if liked_loop is not None:
+        liked_loop.submit_decisions(result.get("liked_music_decisions"))
+    return result
+
+
 def main():
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(name)s %(levelname)s %(message)s")
     if len(sys.argv) > 1:
@@ -70,8 +80,7 @@ def main():
     while True:
         started = time.time()
         try:
-            result = heartbeat(cfg, liked_loop)
-            log.info("heartbeat ok (registered as %s)", result.get("name"))
+            beat(cfg, liked_loop)
             if once:
                 return
         except urllib.error.HTTPError as error:
