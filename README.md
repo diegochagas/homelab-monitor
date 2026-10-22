@@ -326,8 +326,9 @@ Each download is recorded in `.library-index.json` (video id → file) in
 `LIKED_MUSIC_DIR`. Two optional steps run after every sync:
 
 - **New likes join the server playlists.** With `LIKED_MUSIC_JELLYFIN_*` set
-  they go to the top of the Jellyfin playlist, with `LIKED_MUSIC_SWING_*` to
-  the end of the Swing Music one (Swing can't reorder). A song the server
+  they go to the top of the Jellyfin playlist, with `LIKED_MUSIC_SWING_*` into
+  the Swing Music one (Swing 2.1.4 stores playlists unordered, so there is no
+  "top" there). A song the server
   hasn't scanned yet stays queued in `.playlist-pending.json` and is retried.
 - **Unlikes are removed everywhere** (`LIKED_MUSIC_REMOVE_UNLIKED=true`). The
   agent lists the whole Liked Music playlist and compares it with the list it

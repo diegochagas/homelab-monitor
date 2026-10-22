@@ -3,7 +3,9 @@
 Swing has no API keys: the agent logs in with LIKED_MUSIC_SWING_USER /
 LIKED_MUSIC_SWING_PASSWORD and keeps the session cookie for the run. Songs are
 matched by their path inside Swing's container (LIKED_MUSIC_SWING_DIR plus the
-library filename).
+library filename), never by a remembered trackhash: Swing recomputes trackhashes
+from title/album/artists after its tag settings (artist separators, featured
+artists, "prod." and remaster cleanup), so changing a setting changes them all.
 """
 
 import http.cookiejar
@@ -74,9 +76,10 @@ class SwingPlaylists:
         return removed
 
     def add(self, filenames: List[str]) -> List[str]:
-        """Append songs Swing has indexed to the liked playlist; returns those added.
+        """Add songs Swing has indexed to the liked playlist; returns those added.
 
-        Swing has no reorder endpoint, so new likes go at the end of its playlist.
+        Swing 2.1.4 keeps no order: /add merges the hashes as a set
+        (append_to_playlist), so the playlist order is arbitrary after any add.
         """
         playlist_id = self.playlists().get(self.settings.liked_playlist)
         if playlist_id is None:
