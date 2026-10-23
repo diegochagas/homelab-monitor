@@ -311,6 +311,9 @@ format (Opus or m4a) with cover art and tags, named `Artist - Title`.
 - Nothing is overwritten. Unliked songs are deleted only when you opt in
   (see below); otherwise unliking a song keeps the file.
 - Videos YouTube no longer serves are skipped and retried on the next run.
+- A run that fails (often the network isn't up yet right after boot) or
+  leaves a song a server hasn't indexed is retried after 15 minutes instead
+  of the full interval, up to 4 times in a row.
 - A lock file stops two syncs from running at once in the same folder.
 - The last result (time, new songs, uploads, error) travels in the
   heartbeat as `liked_music`.
@@ -329,10 +332,13 @@ Each download is recorded in `.library-index.json` (video id → file) in
 `LIKED_MUSIC_DIR`. Two optional steps run after every sync:
 
 - **New likes join the server playlists.** With `LIKED_MUSIC_JELLYFIN_*` set
-  they go to the top of the Jellyfin playlist, with `LIKED_MUSIC_SWING_*` into
-  the Swing Music one (Swing 2.1.4 stores playlists unordered, so there is no
-  "top" there). A song the server
-  hasn't scanned yet stays queued in `.playlist-pending.json` and is retried.
+  they're appended to the Jellyfin playlist, with `LIKED_MUSIC_SWING_*` added
+  to the Swing Music one. Neither is reordered: Jellyfin's move endpoint
+  refuses API keys, and Swing 2.1.4 stores playlists unordered. Sort the
+  playlist by date added in your player to see new likes first. A song a
+  server hasn't indexed yet stays queued in `.playlist-pending.json`; Swing
+  (which doesn't notice files rsync adds) is asked to rescan its library, and
+  the 15-minute retry adds the song once it's indexed.
 - **Unlikes wait for your answer** (`LIKED_MUSIC_REMOVE_UNLIKED=true`). The
   agent lists the whole Liked Music playlist and compares it with the list it
   saved last time (`.liked-ids.json`). A song that dropped out goes into

@@ -21,6 +21,7 @@ class FakePlaylistServer:
         self.fail = fail
         self.removed: List[str] = []
         self.added: List[str] = []
+        self.scans = 0
 
     def remove_files(self, filenames: List[str]) -> int:
         if self.fail:
@@ -36,6 +37,9 @@ class FakePlaylistServer:
         return ready
 
     add = add_to_top
+
+    def request_scan(self) -> None:
+        self.scans += 1
 
 
 class FakeListing:
@@ -187,6 +191,12 @@ class PendingPlaylistAddTest(unittest.TestCase):
         outcome = self.run_adds(FakePlaylistServer({"New.opus", "Old.opus"}), FakePlaylistServer({"Old.opus"}))
         self.assertEqual(outcome.playlist_added, {"jellyfin": 2, "swing": 1})
         self.assertEqual(load_state(self.folder, PENDING_NAME, {}), {"jellyfin": [], "swing": ["new"]})
+        self.assertEqual(outcome.playlist_waiting, 1)
+
+    def test_server_missing_a_song_is_asked_to_rescan(self) -> None:
+        jellyfin, swing = FakePlaylistServer({"New.opus", "Old.opus"}), FakePlaylistServer({"Old.opus"})
+        self.run_adds(jellyfin, swing)
+        self.assertEqual((jellyfin.scans, swing.scans), (0, 1))
 
     def test_one_server_down_does_not_block_the_other(self) -> None:
         down = FakePlaylistServer(fail=RuntimeError("GET /Users -> unreachable"))

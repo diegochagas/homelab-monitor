@@ -91,6 +91,10 @@ class SwingPlaylists:
             self._call("POST", f"/playlists/{playlist_id}/add", {"itemtype": "tracks", "itemhash": itemhash, "sortoptions": {}})
         return ready
 
+    def request_scan(self) -> None:
+        """Start a library scan so files added to the folder get indexed (takes minutes)."""
+        self._call("GET", "/notsettings/trigger-scan")
+
     def _hashes_by_path(self) -> Dict[str, str]:
         folder = self._call("POST", "/folder", {"folder": self.settings.music_dir, "tracks_only": True,
                                                 "start": 0, "limit": ALL_TRACKS})

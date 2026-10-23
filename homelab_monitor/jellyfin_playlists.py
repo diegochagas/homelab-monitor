@@ -65,32 +65,29 @@ class JellyfinPlaylists:
                 removed += len(entry_ids)
         return removed
 
-    def add_to_top(self, filenames: List[str]) -> List[str]:
-        """Add songs to the top of the liked playlist, newest first.
+    def add(self, filenames: List[str]) -> List[str]:
+        """Append songs Jellyfin has indexed to the liked playlist; returns those now in it.
 
-        Returns the filenames Jellyfin has indexed and that were added; the rest
-        stay queued for the next run.
+        Songs already in the playlist are not added again, so a retried add is safe.
+        New likes go to the end: Jellyfin's Move endpoint takes the user from the
+        login session and refuses API-key requests (HTTP 400), so no reordering.
         """
         playlist_id = self.playlists().get(self.settings.liked_playlist)
         if playlist_id is None:
             raise LookupError(f"Jellyfin playlist {self.settings.liked_playlist!r} not found")
         item_ids = self._item_ids_by_path([self.path_for(name) for name in filenames])
         ready = [name for name in filenames if self.path_for(name) in item_ids]
-        if ready:
-            ids = [item_ids[self.path_for(name)] for name in ready]
-            self._call("POST", f"/Playlists/{playlist_id}/Items", {"ids": ",".join(ids), "userId": self.user_id()})
-            self._move_to_top(playlist_id, ids)
+        present = {entry["Id"] for entry in self._entries(playlist_id)}
+        missing = [item_ids[self.path_for(name)] for name in ready if item_ids[self.path_for(name)] not in present]
+        if missing:
+            self._call("POST", f"/Playlists/{playlist_id}/Items", {"ids": ",".join(missing), "userId": self.user_id()})
         return ready
+
+    def _entries(self, playlist_id: str) -> List[dict]:
+        return self._call("GET", f"/Playlists/{playlist_id}/Items", {"userId": self.user_id()}).get("Items", [])
 
     def _item_ids_by_path(self, paths: List[str]) -> Dict[str, str]:
         wanted = set(paths)
         found = self._call("GET", f"/Users/{self.user_id()}/Items",
                            {"IncludeItemTypes": "Audio", "Recursive": "true", "Fields": "Path"})
         return {i["Path"]: i["Id"] for i in found.get("Items", []) if i.get("Path") in wanted}
-
-    def _move_to_top(self, playlist_id: str, item_ids: List[str]) -> None:
-        """Appended entries go last; move them to positions 0..n-1 in order."""
-        entries = self._call("GET", f"/Playlists/{playlist_id}/Items", {"userId": self.user_id()}).get("Items", [])
-        entry_by_item = {e["Id"]: e["PlaylistItemId"] for e in entries}
-        for index, item_id in enumerate(item_ids):
-            self._call("POST", f"/Playlists/{playlist_id}/Items/{entry_by_item[item_id]}/Move/{index}")

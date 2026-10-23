@@ -24,6 +24,11 @@ log = logging.getLogger("liked_music")
 
 Runner = Callable[..., subprocess.CompletedProcess]
 MAX_PENDING_REPORTED = 40  # keeps the heartbeat and the Telegram message small
+# A run that failed (the network is often not up yet right after boot) or left
+# songs a server hasn't indexed is retried after RETRY_MINUTES instead of the
+# full interval, at most MAX_QUICK_RETRIES times in a row.
+RETRY_MINUTES = 15
+MAX_QUICK_RETRIES = 4
 
 
 class LikedMusicLoop:
@@ -38,6 +43,7 @@ class LikedMusicLoop:
         self._wake = threading.Event()
         self._inbox_lock = threading.Lock()
         self._inbox: Dict[str, List[str]] = {"delete": [], "keep": []}
+        self._quick_retries = 0
 
     def start(self) -> threading.Thread:
         thread = threading.Thread(target=self._loop, name="liked-music", daemon=True)
@@ -48,8 +54,7 @@ class LikedMusicLoop:
         next_sync = 0.0
         while True:
             if time.time() >= next_sync:
-                self.run_once()
-                next_sync = time.time() + max(60.0, self.settings.interval_hours * 3600)
+                next_sync = time.time() + self.next_delay(self.run_once())
             self._wake.wait(timeout=max(1.0, next_sync - time.time()))
             self._wake.clear()
             self.apply_submitted()
@@ -64,6 +69,18 @@ class LikedMusicLoop:
                      len(result.new_titles), result.pushed, len(result.queued))
         self.apply_submitted()
         return result
+
+    def next_delay(self, result: LikedSyncResult) -> float:
+        """Seconds until the next run: RETRY_MINUTES after a failed or unfinished run, else the interval.
+
+        Example: loop.next_delay(LikedSyncResult(0, error="offline")) -> 900.0
+        """
+        unfinished = bool(result.error) or result.playlist_waiting > 0
+        if unfinished and self._quick_retries < MAX_QUICK_RETRIES:
+            self._quick_retries += 1
+            return RETRY_MINUTES * 60.0
+        self._quick_retries = 0
+        return max(60.0, self.settings.interval_hours * 3600)
 
     def submit_decisions(self, decisions: Optional[dict]) -> None:
         """Queue {"delete": [ids], "keep": [ids]} from the heartbeat reply; ids not waiting are dropped.
