@@ -18,6 +18,7 @@ class FakeJellyfinApi:
         self.songs = songs  # item id -> filename
         self.playlists = playlists  # name -> [item ids]
         self.headers: List[dict] = []
+        self.moves = 0
 
     def __call__(self, method, url, headers, body=None):
         self.headers.append(headers)
@@ -43,10 +44,8 @@ class FakeJellyfinApi:
         if method == "DELETE":
             drop = set(query["entryIds"].split(","))
             items[:] = [i for i in items if "e" + i not in drop]
-        elif parts[-2] == "Move":
-            item = parts[3][1:]
-            items.remove(item)
-            items.insert(int(parts[-1]), item)
+        elif parts[-2] == "Move":  # real Jellyfin answers API-key moves with HTTP 400
+            self.moves += 1
         else:
             items.extend(query["ids"].split(","))
         return None
@@ -65,11 +64,12 @@ class JellyfinPlaylistsTest(unittest.TestCase):
         self.assertEqual(jellyfin(self.api).remove_files(["B.opus"]), 2)
         self.assertEqual(self.api.playlists, {"Liked": ["1"], "Christians": []})
 
-    def test_new_likes_go_to_the_top_in_order(self) -> None:
-        self.api.playlists["Liked"] = ["1"]
-        ready = jellyfin(self.api).add_to_top(["C.m4a", "B.opus", "Unindexed.opus"])
+    def test_new_likes_are_appended_once(self) -> None:
+        self.api.playlists["Liked"] = ["1", "2"]
+        ready = jellyfin(self.api).add(["C.m4a", "B.opus", "Unindexed.opus"])
         self.assertEqual(ready, ["C.m4a", "B.opus"])
-        self.assertEqual(self.api.playlists["Liked"], ["3", "2", "1"])
+        self.assertEqual(self.api.playlists["Liked"], ["1", "2", "3"])
+        self.assertEqual(self.api.moves, 0)
 
     def test_api_key_travels_in_the_header_only(self) -> None:
         jellyfin(self.api).playlists()
@@ -89,12 +89,16 @@ class FakeSwingApi:
         self.files = files  # trackhash -> filepath
         self.playlists = playlists
         self.logins = 0
+        self.scans = 0
 
     def __call__(self, method, url, headers, body=None, opener=None):
         path = urllib.parse.urlparse(url).path.strip("/").split("/")
         if path == ["auth", "login"]:
             self.logins += 1
             return {"msg": "Logged in"}
+        if path == ["notsettings", "trigger-scan"]:
+            self.scans += 1
+            return {"msg": "Scan triggered!"}
         if path == ["folder"]:
             return {"tracks": [{"trackhash": h, "filepath": p} for h, p in self.files.items()]}
         if path == ["playlists"]:
@@ -133,6 +137,10 @@ class SwingPlaylistsTest(unittest.TestCase):
         self.assertEqual(client.add(["C.m4a", "New.opus"]), ["C.m4a"])
         client.playlists()
         self.assertEqual((self.api.playlists[1], self.api.logins), (["hc"], 1))
+
+    def test_request_scan_uses_the_get_endpoint(self) -> None:
+        swing(self.api).request_scan()
+        self.assertEqual(self.api.scans, 1)
 
     def test_missing_playlist_names_it(self) -> None:
         client = SwingPlaylists(SwingSettings("http://sw", "a", "p", "/music/Liked", "Nope"), send=self.api, opener=object())

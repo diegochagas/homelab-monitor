@@ -1,8 +1,10 @@
 """Keep the music server in step with YouTube Music after each download run.
 
-1. New likes: songs downloaded earlier are added to the "liked" playlists on
-   Jellyfin (top, newest first) and Swing (unordered). A song the server
-   hasn't indexed yet stays queued and is retried next run.
+1. New likes: songs downloaded earlier are appended to the "liked" playlists on
+   Jellyfin and Swing (neither can be reordered with the agent's credentials:
+   Jellyfin's move endpoint ignores API keys, Swing stores playlists unordered).
+   A song a server hasn't indexed yet stays queued, Swing is asked to rescan,
+   and the loop retries soon.
 2. Unlikes: the full Liked Music list is compared with the one seen last time.
    Songs that dropped out and that the sync put in the library are QUEUED in
    .removal-pending.json; nothing is deleted. The heartbeat reports the queue,
@@ -45,6 +47,7 @@ class ReconcileOutcome:
     queued: List[str] = field(default_factory=list)  # waiting for confirmation
     kept: List[str] = field(default_factory=list)
     playlist_added: Dict[str, int] = field(default_factory=dict)
+    playlist_waiting: int = 0  # songs a server hasn't indexed yet (retried soon)
     errors: List[str] = field(default_factory=list)
 
 
@@ -69,18 +72,34 @@ def reconcile_library(deps: ReconcileDeps) -> ReconcileOutcome:
 def _add_pending(deps: ReconcileDeps, outcome: ReconcileOutcome) -> None:
     pending: Dict[str, List[str]] = load_state(deps.folder, PENDING_NAME, {"jellyfin": [], "swing": []})
     index: Dict[str, str] = load_state(deps.folder, INDEX_NAME, {})
-    for server, client, add in (("jellyfin", deps.jellyfin, "add_to_top"), ("swing", deps.swing, "add")):
+    for server, client in (("jellyfin", deps.jellyfin), ("swing", deps.swing)):
         queued = [vid for vid in pending.get(server, []) if vid in index]
         if client is None or not queued:
             continue
-        try:
-            added_names = set(getattr(client, add)([index[vid] for vid in queued]))
-        except Exception as error:  # noqa: BLE001 - one server down must not stop the other
-            outcome.errors.append(f"{server} playlist add: {error}")
-            continue
-        pending[server] = [vid for vid in queued if index[vid] not in added_names]
-        outcome.playlist_added[server] = len(added_names)
+        added = _add_to_server(server, client, [index[vid] for vid in queued], outcome)
+        pending[server] = [vid for vid in queued if index[vid] not in added]
+        outcome.playlist_added[server] = len(added)
+        outcome.playlist_waiting += len(pending[server])
     save_state(deps.folder, PENDING_NAME, pending)
+
+
+def _add_to_server(server: str, client: object, names: List[str], outcome: ReconcileOutcome) -> set:
+    """Add what the server has indexed; ask it to rescan when a song is still missing.
+
+    Swing only notices files rsync drops into its folder on a library scan, so a
+    song it hasn't indexed yet triggers one; the loop's short retry adds it after.
+    """
+    try:
+        added = set(client.add(names))
+    except Exception as error:  # noqa: BLE001 - one server down must not stop the other
+        outcome.errors.append(f"{server} playlist add: {error}")
+        return set()
+    if len(added) < len(names) and hasattr(client, "request_scan"):
+        try:
+            client.request_scan()
+        except Exception as error:  # noqa: BLE001 - the add itself succeeded
+            outcome.errors.append(f"{server} library scan: {error}")
+    return added
 
 
 def unliked_ids(previous: List[str], current: List[str], index: Dict[str, str]) -> List[str]:

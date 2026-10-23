@@ -64,6 +64,7 @@ class LikedSyncResult:
     pushed: int = 0
     unliked: List[str] = field(default_factory=list)
     queued: List[str] = field(default_factory=list)
+    playlist_waiting: int = 0
     playlist_added: Dict[str, int] = field(default_factory=dict)
     error: Optional[str] = None
 
@@ -168,6 +169,7 @@ def _reconcile(settings: LikedMusicSettings, runner: Runner, result: LikedSyncRe
     outcome = reconcile_library(_reconcile_deps(settings, runner))
     result.queued = outcome.queued
     result.playlist_added = outcome.playlist_added
+    result.playlist_waiting = outcome.playlist_waiting
     _add_errors(result, outcome.errors)
 
 
