@@ -26,8 +26,8 @@ from .lyrics_lrclib import LrclibClient, Lyrics, SongMeta
 RETRY_MISSES_DAYS = 30
 SAVE_EVERY = 25  # lookups between state saves, so an interrupted backfill resumes
 BACKFILL_BATCH = 50
-BUSY_COOLDOWN_SECONDS = 300  # after a batch failed on a busy lrclib
-MAX_FAILED_BATCHES = 24  # about two hours of failing batches, then give up
+BUSY_COOLDOWN_SECONDS = 900  # after a batch failed on a busy lrclib (its busy spells last hours)
+MAX_FAILED_BATCHES = 96  # about a day of failing batches in a row, then give up
 
 Runner = Callable[..., subprocess.CompletedProcess]
 

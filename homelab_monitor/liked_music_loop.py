@@ -62,6 +62,8 @@ class LikedMusicLoop:
     def run_once(self) -> LikedSyncResult:
         result = run_liked_sync(self.settings, self.runner, self.push_runner)
         self.last_result = result
+        if result.lyrics_error:
+            log.info("lyrics lookups paused until the next run: %s", result.lyrics_error[:300])
         if result.error:
             log.warning("liked music sync failed: %s", result.error)
         else:

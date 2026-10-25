@@ -370,6 +370,9 @@ the song, plain ones show as text.
   file, so a song is tried once Jellyfin has scanned it. A search result only
   counts when its length is within 3 seconds of the file's, so a cover or a
   live version doesn't get mistimed lyrics from another recording.
+- lrclib often answers "server is busy" for hours. Lookups then pause until
+  the next run; this never counts as a failed sync. The backfill command
+  below cools down 15 minutes between busy batches for up to a day.
 - Songs without a match (instrumentals, covers, parodies) are retried after
   30 days. Lookups are recorded in `.lyrics-checked.json` in `LIKED_MUSIC_DIR`.
 - Confirmed deletes of unliked songs remove their `.lrc` too.

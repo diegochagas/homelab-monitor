@@ -65,6 +65,7 @@ class LikedSyncResult:
     unliked: List[str] = field(default_factory=list)
     queued: List[str] = field(default_factory=list)
     lyrics_added: int = 0
+    lyrics_error: Optional[str] = None  # reported, but not a failed sync: no quick retry for a busy lrclib
     playlist_waiting: int = 0
     playlist_added: Dict[str, int] = field(default_factory=dict)
     error: Optional[str] = None
@@ -181,7 +182,7 @@ def _add_lyrics(settings: LikedMusicSettings, runner: Runner, result: LikedSyncR
         return
     outcome = lyrics_step(settings.folder, unlike.jellyfin, settings.push_target, unlike.lyrics_per_run, runner)
     result.lyrics_added = len(outcome.written)
-    _add_errors(result, outcome.errors)
+    result.lyrics_error = "; ".join(outcome.errors) or None
 
 
 def _reconcile_deps(settings: LikedMusicSettings, runner: Runner) -> ReconcileDeps:
