@@ -10,7 +10,7 @@
 - .removal-pending.json  {video_id: filename} songs that left Liked Music and
                         wait for the owner's confirmation (Telegram) before anything
                         is deleted; a re-like drops them from this queue.
-- .lyrics-checked.json  {video_id: {"result": "synced"|"plain"|"none"|"present",
+- .lyrics-checked.json  {video_id: {"result": "synced"|"plain"|"none"|"deferred"|"present",
                         "at": epoch}} lyrics lookups done, so misses are only
                         retried after a while.
 

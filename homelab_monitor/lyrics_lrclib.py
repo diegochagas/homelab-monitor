@@ -1,8 +1,10 @@
 """Look up song lyrics on lrclib.net (free, open database, no API key).
 
-Three tries per song, stopping at the first hit:
-1. /api/get with title, artist, album and duration (exact match; only for
-   songs that have an album tag, i.e. real YouTube Music tracks);
+Tries per song, stopping at the first hit:
+1. for songs with an album tag (real YouTube Music tracks): /api/get-cached
+   (lrclib's own database), then /api/get, which also asks outside lyrics
+   providers. That outside path is what goes "server is busy" for hours, so
+   a busy /api/get is skipped instead of waited for;
 2. /api/search with title and artist;
 3. /api/search with a cleaned-up title as free text (video noise such as
    "(Official Video)" removed), for songs saved from plain videos.
@@ -79,6 +81,10 @@ def _as_lyrics(result: dict) -> Optional[Lyrics]:
     return None
 
 
+class LookupIncomplete(Exception):
+    """No lyrics found, but a busy step was skipped: look the song up again soon."""
+
+
 def _busy(error: HttpJsonError) -> bool:
     return "HTTP 503" in str(error) or "HTTP 429" in str(error)
 
@@ -90,31 +96,51 @@ class LrclibClient:
         self.send = send
         self.pause = pause
 
-    def _get(self, path: str, query: dict) -> Any:
+    def _get(self, path: str, query: dict, patient: bool = True) -> Any:
         url = build_url(LRCLIB_URL, path, query)
-        for wait in (PAUSE_SECONDS, *BUSY_WAITS_SECONDS):
+        for wait in (PAUSE_SECONDS, *(BUSY_WAITS_SECONDS if patient else ())):
             self.pause(wait)
             try:
                 return self.send("GET", url, {"User-Agent": USER_AGENT})
             except HttpJsonError as error:
                 if "HTTP 404" in str(error):  # lrclib's "no such track"
                     return None
-                if not _busy(error) or wait == BUSY_WAITS_SECONDS[-1]:
+                if not _busy(error) or not patient or wait == BUSY_WAITS_SECONDS[-1]:
                     raise
         return None
 
     def find(self, song: SongMeta) -> Optional[Lyrics]:
-        """Lyrics for a song, or None; raises HttpJsonError when lrclib is unreachable."""
-        if song.album:
-            exact = self._get("/api/get", {"track_name": song.title, "artist_name": song.artist,
-                                           "album_name": song.album, "duration": song.seconds})
-            if isinstance(exact, dict) and _as_lyrics(exact):
-                return _as_lyrics(exact)
+        """Lyrics for a song, or None when lrclib has none.
+
+        Raises LookupIncomplete when nothing was found but the outside-provider
+        step was busy (try the song again soon), HttpJsonError when lrclib itself
+        is unreachable or the search stays busy.
+        """
+        exact, skipped = self._exact(song) if song.album else (None, False)
+        if exact:
+            return exact
         for query in self._search_queries(song):
             found = best_match(self._get("/api/search", query), song.seconds)
             if found:
                 return found
+        if skipped:
+            raise LookupIncomplete(f"lrclib's outside lookup was busy for {song.title!r}")
         return None
+
+    def _exact(self, song: SongMeta) -> tuple:
+        """(lyrics or None, whether the busy /api/get was skipped)."""
+        query = {"track_name": song.title, "artist_name": song.artist, "album_name": song.album,
+                 "duration": song.seconds}
+        cached = self._get("/api/get-cached", query)
+        if isinstance(cached, dict) and _as_lyrics(cached):
+            return _as_lyrics(cached), False
+        try:
+            fetched = self._get("/api/get", query, patient=False)
+        except HttpJsonError as error:
+            if _busy(error):
+                return None, True
+            raise
+        return (_as_lyrics(fetched) if isinstance(fetched, dict) else None), False
 
     @staticmethod
     def _search_queries(song: SongMeta) -> List[dict]:
