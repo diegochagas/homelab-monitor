@@ -22,6 +22,13 @@ class JellyfinSettings:
     liked_playlist: str
 
 
+def _song_fields(item: dict) -> dict:
+    artists = item.get("Artists") or [item.get("AlbumArtist") or ""]
+    return {"id": item["Id"], "title": item.get("Name") or "", "artist": artists[0],
+            "album": item.get("Album") or "", "seconds": round((item.get("RunTimeTicks") or 0) / 1e7),
+            "has_lyrics": bool(item.get("HasLyrics"))}
+
+
 class JellyfinPlaylists:
     """Edits the user's playlists. `send` is request_json, or a fake in tests."""
 
@@ -82,6 +89,25 @@ class JellyfinPlaylists:
         if missing:
             self._call("POST", f"/Playlists/{playlist_id}/Items", {"ids": ",".join(missing), "userId": self.user_id()})
         return ready
+
+    def audio_metadata(self) -> Dict[str, dict]:
+        """{library filename: {id, title, artist, album, seconds, has_lyrics}} for songs in music_dir.
+
+        Example: audio_metadata()["A - B.opus"]["seconds"] -> 213
+        """
+        prefix = self.path_for("")
+        found = self._call("GET", f"/Users/{self.user_id()}/Items",
+                           {"IncludeItemTypes": "Audio", "Recursive": "true", "Fields": "Path"})
+        songs = {}
+        for item in found.get("Items", []):
+            path = item.get("Path") or ""
+            if path.startswith(prefix) and "/" not in path[len(prefix):]:
+                songs[path[len(prefix):]] = _song_fields(item)
+        return songs
+
+    def refresh_item(self, item_id: str) -> None:
+        """Re-read one song's metadata so a new lyrics file next to it shows up."""
+        self._call("POST", f"/Items/{item_id}/Refresh", {"metadataRefreshMode": "Default", "imageRefreshMode": "None"})
 
     def _entries(self, playlist_id: str) -> List[dict]:
         return self._call("GET", f"/Playlists/{playlist_id}/Items", {"userId": self.user_id()}).get("Items", [])

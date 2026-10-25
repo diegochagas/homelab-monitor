@@ -65,8 +65,8 @@ class LikedMusicLoop:
         if result.error:
             log.warning("liked music sync failed: %s", result.error)
         else:
-            log.info("liked music sync: %d new, %d uploaded, %d unliked waiting for confirmation",
-                     len(result.new_titles), result.pushed, len(result.queued))
+            log.info("liked music sync: %d new, %d uploaded, %d lyrics added, %d unliked waiting for confirmation",
+                     len(result.new_titles), result.pushed, result.lyrics_added, len(result.queued))
         self.apply_submitted()
         return result
 

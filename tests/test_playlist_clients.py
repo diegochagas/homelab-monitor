@@ -75,6 +75,11 @@ class JellyfinPlaylistsTest(unittest.TestCase):
         jellyfin(self.api).playlists()
         self.assertEqual(self.api.headers[0], {"Authorization": 'MediaBrowser Token="secret-key"'})
 
+    def test_audio_metadata_maps_library_files(self) -> None:
+        songs = jellyfin(self.api).audio_metadata()
+        self.assertEqual(sorted(songs), ["A.opus", "B.opus", "C.m4a"])
+        self.assertEqual(songs["A.opus"]["id"], "1")
+
     def test_unknown_user_names_the_setting(self) -> None:
         client = JellyfinPlaylists(JellyfinSettings("http://jf", "k", "nobody", JELLYFIN_DIR, "Liked"), send=self.api)
         with self.assertRaisesRegex(LookupError, "LIKED_MUSIC_JELLYFIN_USER"):

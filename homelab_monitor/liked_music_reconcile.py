@@ -25,6 +25,7 @@ import os
 from dataclasses import dataclass, field
 from typing import Callable, Dict, List, Optional
 
+from .liked_music_lyrics import lrc_name
 from .liked_music_remote import LikedListingError
 from .liked_music_state import (INDEX_NAME, LIKED_SNAPSHOT_NAME, PENDING_NAME, REMOVAL_PENDING_NAME,
                                 forget_songs, load_state, pending_removals, save_state)
@@ -153,7 +154,7 @@ def _remove_everywhere(deps: ReconcileDeps, names: List[str], outcome: Reconcile
         for client in (deps.jellyfin, deps.swing):
             if client is not None:
                 client.remove_files(names)
-        deps.delete_files(names)
+        deps.delete_files(names + [lrc_name(name) for name in names])  # rm -f: a missing .lrc is fine
     except Exception as error:  # noqa: BLE001 - the song stays queued, so a repeated decision retries
         outcome.errors.append(f"removing {len(names)} unliked song(s) failed: {error}")
         return False

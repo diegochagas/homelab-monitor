@@ -26,7 +26,7 @@ from typing import Callable, Dict, List, Optional, Tuple
 from .config import Config, load_env_file
 from .liked_music_push import PushSettings, push_staged_songs
 from .liked_music_reconcile import ReconcileDeps, apply_removal_decisions, reconcile_library
-from .liked_music_servers import UnlikeSettings, build_reconcile_deps, unlike_settings_from_config
+from .liked_music_servers import UnlikeSettings, build_reconcile_deps, lyrics_step, unlike_settings_from_config
 from .liked_music_state import ARCHIVE_NAME, record_downloads
 from .liked_music_ytdlp_output import printed_downloads, read_archive_ids, ytdlp_failure_reason
 
@@ -64,6 +64,7 @@ class LikedSyncResult:
     pushed: int = 0
     unliked: List[str] = field(default_factory=list)
     queued: List[str] = field(default_factory=list)
+    lyrics_added: int = 0
     playlist_waiting: int = 0
     playlist_added: Dict[str, int] = field(default_factory=dict)
     error: Optional[str] = None
@@ -150,7 +151,7 @@ def run_liked_sync(
     if not os.path.isdir(settings.folder):
         result.error = f"LIKED_MUSIC_DIR {settings.folder!r} is not a directory"
         return result
-    lock = _try_lock(settings.folder)
+    lock = try_sync_lock(settings.folder)
     if lock is None:
         result.error = f"another liked-music sync is already running in {settings.folder!r}"
         return result
@@ -171,6 +172,16 @@ def _reconcile(settings: LikedMusicSettings, runner: Runner, result: LikedSyncRe
     result.playlist_added = outcome.playlist_added
     result.playlist_waiting = outcome.playlist_waiting
     _add_errors(result, outcome.errors)
+    _add_lyrics(settings, runner, result)
+
+
+def _add_lyrics(settings: LikedMusicSettings, runner: Runner, result: LikedSyncResult) -> None:
+    unlike = settings.unlike
+    if not (unlike.lyrics and unlike.jellyfin and settings.push_target):
+        return
+    outcome = lyrics_step(settings.folder, unlike.jellyfin, settings.push_target, unlike.lyrics_per_run, runner)
+    result.lyrics_added = len(outcome.written)
+    _add_errors(result, outcome.errors)
 
 
 def _reconcile_deps(settings: LikedMusicSettings, runner: Runner) -> ReconcileDeps:
@@ -189,7 +200,7 @@ def apply_decisions(settings: LikedMusicSettings, delete_ids: List[str], keep_id
     if settings.unlike_error or not settings.unlike.remove_unliked:
         result.error = settings.unlike_error or "LIKED_MUSIC_REMOVE_UNLIKED is off; decision ignored"
         return result
-    lock = _try_lock(settings.folder)
+    lock = try_sync_lock(settings.folder)
     if lock is None:
         result.error = "liked-music sync running; decision retried after it"
         return result
@@ -216,7 +227,7 @@ def _push_if_configured(settings: LikedMusicSettings, push_runner: Runner, resul
         _add_errors(result, [outcome.error])
 
 
-def _try_lock(folder: str):
+def try_sync_lock(folder: str):
     """Exclusive non-blocking lock file, or None if another sync holds it."""
     handle = open(os.path.join(folder, LOCK_NAME), "w", encoding="utf-8")
     try:

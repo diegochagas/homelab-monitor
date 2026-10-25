@@ -10,6 +10,9 @@
 - .removal-pending.json  {video_id: filename} songs that left Liked Music and
                         wait for the owner's confirmation (Telegram) before anything
                         is deleted; a re-like drops them from this queue.
+- .lyrics-checked.json  {video_id: {"result": "synced"|"plain"|"none"|"present",
+                        "at": epoch}} lyrics lookups done, so misses are only
+                        retried after a while.
 
 Writes go to a temporary file first and are renamed into place, so a crash
 never leaves half a JSON file behind.
@@ -24,6 +27,7 @@ LIKED_SNAPSHOT_NAME = ".liked-ids.json"
 PENDING_NAME = ".playlist-pending.json"
 ARCHIVE_NAME = ".archive.txt"
 REMOVAL_PENDING_NAME = ".removal-pending.json"
+LYRICS_STATE_NAME = ".lyrics-checked.json"
 
 
 def load_state(folder: str, name: str, default: Any) -> Any:
@@ -72,6 +76,9 @@ def forget_songs(folder: str, video_ids: Iterable[str]) -> None:
     save_state(folder, INDEX_NAME, {vid: name for vid, name in index.items() if vid not in gone})
     pending: Dict[str, List[str]] = load_state(folder, PENDING_NAME, {"jellyfin": [], "swing": []})
     save_state(folder, PENDING_NAME, {server: [v for v in ids if v not in gone] for server, ids in pending.items()})
+    checked: Dict[str, dict] = load_state(folder, LYRICS_STATE_NAME, {})
+    if gone & checked.keys():  # a re-like downloads the song again, so look its lyrics up again too
+        save_state(folder, LYRICS_STATE_NAME, {vid: entry for vid, entry in checked.items() if vid not in gone})
     _drop_archive_lines(folder, gone)
 
 

@@ -49,11 +49,27 @@ def split_target(push_target: str) -> Tuple[str, str]:
     return host, folder.rstrip("/") + "/"
 
 
-def delete_remote_files(push_target: str, filenames: List[str], runner: Runner = subprocess.run) -> None:
-    """Delete these files from the push target folder; raises if ssh fails."""
+def write_remote_file(push_target: str, filename: str, content: str, runner: Runner = subprocess.run) -> None:
+    """Write a small text file (a lyrics .lrc) into the push target folder over ssh."""
+    _check_plain_names([filename])
+    host, folder = split_target(push_target)
+    remote = "umask 002 && cat > " + shlex.quote(folder + filename)
+    completed = runner(["ssh", *SSH_OPTIONS, host, remote], input=content, capture_output=True, text=True,
+                       timeout=PUSH_TIMEOUT_SECONDS)
+    if completed.returncode != 0:
+        detail = (completed.stderr or "").strip()[:200]
+        raise RuntimeError(f"writing {filename!r} on {host} failed (ssh exit {completed.returncode}): {detail}")
+
+
+def _check_plain_names(filenames: List[str]) -> None:
     for name in filenames:
         if not name or "/" in name or name.startswith("."):
-            raise ValueError(f"refusing to delete {name!r}: expected a plain library filename")
+            raise ValueError(f"refusing to touch {name!r}: expected a plain library filename")
+
+
+def delete_remote_files(push_target: str, filenames: List[str], runner: Runner = subprocess.run) -> None:
+    """Delete these files from the push target folder; raises if ssh fails."""
+    _check_plain_names(filenames)
     if not filenames:
         return
     host, folder = split_target(push_target)

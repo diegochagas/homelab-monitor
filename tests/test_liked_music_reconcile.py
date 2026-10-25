@@ -100,7 +100,8 @@ class ReconcileTest(unittest.TestCase):
         reconcile_library(self.deps(FakeListing(["keep"])))
         outcome = apply_removal_decisions(self.deps(FakeListing()), ["gone"], [])
         self.assertEqual(outcome.unliked, ["Gone.opus"])
-        self.assertEqual((self.jellyfin.removed, self.swing.removed, self.delete.deleted), (["Gone.opus"],) * 3)
+        self.assertEqual((self.jellyfin.removed, self.swing.removed), (["Gone.opus"],) * 2)
+        self.assertEqual(self.delete.deleted, ["Gone.opus", "Gone.lrc"])  # lyrics sidecar goes too
         self.assertNotIn("gone", load_state(self.folder, INDEX_NAME, {}))
         with open(os.path.join(self.folder, ARCHIVE_NAME), encoding="utf-8") as archive:
             self.assertEqual(archive.read(), "youtube keep\nyoutube xian\n")
@@ -117,7 +118,7 @@ class ReconcileTest(unittest.TestCase):
         save_state(self.folder, REMOVAL_PENDING_NAME, {"gone": "Gone.opus"})
         apply_removal_decisions(self.deps(FakeListing()), ["gone", "gone"], [])
         apply_removal_decisions(self.deps(FakeListing()), ["gone", "keep"], [])
-        self.assertEqual(self.delete.deleted, ["Gone.opus"])
+        self.assertEqual(self.delete.deleted, ["Gone.opus", "Gone.lrc"])
 
     def test_relike_drops_the_song_from_the_queue(self) -> None:
         save_state(self.folder, LIKED_SNAPSHOT_NAME, ["keep"])
