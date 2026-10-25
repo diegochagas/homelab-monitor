@@ -43,7 +43,8 @@ Formatter: none enforced yet (ruff isn't installed on the machines); keep PEP 8.
   RETRY_MINUTES, at most MAX_QUICK_RETRIES in a row, then the normal interval);
   waits on lrclib.net "server is busy" answers (lyrics_lrclib: BUSY_WAITS_SECONDS,
   then the run stops and the song is tried next run; the backfill command cools
-  down BUSY_COOLDOWN_SECONDS between failing batches, at most MAX_FAILED_BATCHES);
+  down BUSY_COOLDOWN_SECONDS between failing batches, at most MAX_FAILED_BATCHES;
+  lyrics errors never count as a failed sync, so they don't trigger quick retries);
   lock file against concurrent liked-music syncs; never overwrite files in the
   music folder (yt-dlp keeps its default no-overwrite behaviour); delete music
   only through liked_music_reconcile.apply_removal_decisions after the owner's

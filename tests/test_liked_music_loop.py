@@ -78,6 +78,9 @@ class RetryDelayTest(unittest.TestCase):
         delays = [self.loop.next_delay(LikedSyncResult(0, error="cookies expired")) for _ in range(MAX_QUICK_RETRIES + 1)]
         self.assertEqual(delays[-1], 6 * 3600)
 
+    def test_busy_lyrics_service_does_not_trigger_quick_retries(self) -> None:
+        self.assertEqual(self.loop.next_delay(LikedSyncResult(0, lyrics_error="HTTP 503: busy")), 6 * 3600)
+
     def test_clean_run_waits_the_full_interval(self) -> None:
         self.loop.next_delay(LikedSyncResult(0, error="offline"))
         self.assertEqual(self.loop.next_delay(LikedSyncResult(0)), 6 * 3600)
