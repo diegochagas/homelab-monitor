@@ -357,6 +357,28 @@ Each download is recorded in `.library-index.json` (video id → file) in
   and that looks exactly like an unlike. Such a file can't be downloaded
   again, so a person decides.
 
+### Lyrics
+
+With `LIKED_MUSIC_LYRICS=true` (plus the Jellyfin settings and a push target)
+each run looks up lyrics for up to `LIKED_MUSIC_LYRICS_PER_RUN` (default 150)
+songs on [lrclib.net](https://lrclib.net), a free open lyrics database, and
+writes `<song name>.lrc` next to the audio file on the server. Jellyfin (so
+Finamp too) and Swing Music both read that sidecar: synced lyrics scroll with
+the song, plain ones show as text.
+
+- The lookup uses the title, artist, album and length Jellyfin read from the
+  file, so a song is tried once Jellyfin has scanned it. A search result only
+  counts when its length is within 3 seconds of the file's, so a cover or a
+  live version doesn't get mistimed lyrics from another recording.
+- Songs without a match (instrumentals, covers, parodies) are retried after
+  30 days. Lookups are recorded in `.lyrics-checked.json` in `LIKED_MUSIC_DIR`.
+- Confirmed deletes of unliked songs remove their `.lrc` too.
+- To fill in the whole library at once instead of 150 songs per run:
+
+  ```bash
+  python3 -m homelab_monitor.liked_music_lyrics monitor.env --limit 5000
+  ```
+
 Safety rails: only songs the sync downloaded *and* saw in Liked Music count,
 so songs that are in other playlists only are never touched. The first
 listing only saves the list. Nothing is queued when the listing fails or when
@@ -389,6 +411,8 @@ homelab-monitor/
 │   ├── liked_music_ytdlp_output.py  # agent: parse a yt-dlp run's output
 │   ├── liked_music_state.py  # agent: index, liked list, playlist queue files
 │   ├── liked_music_remote.py  # agent: list Liked Music, delete over SSH
+│   ├── liked_music_lyrics.py  # agent: lyrics sidecars for the library
+│   ├── lyrics_lrclib.py  # agent: lrclib.net lookups with length matching
 │   ├── jellyfin_playlists.py  # agent: Jellyfin playlist API
 │   ├── swing_playlists.py  # agent: Swing Music playlist API
 │   ├── http_json.py    # JSON-over-HTTP helper with timeouts

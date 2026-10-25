@@ -41,6 +41,9 @@ Formatter: none enforced yet (ruff isn't installed on the machines); keep PEP 8.
   timeouts on every HTTP call and subprocess (Telegram, heartbeat, yt-dlp);
   short retries of a failed or unfinished liked-music run (liked_music_loop:
   RETRY_MINUTES, at most MAX_QUICK_RETRIES in a row, then the normal interval);
+  waits on lrclib.net "server is busy" answers (lyrics_lrclib: BUSY_WAITS_SECONDS,
+  then the run stops and the song is tried next run; the backfill command cools
+  down BUSY_COOLDOWN_SECONDS between failing batches, at most MAX_FAILED_BATCHES);
   lock file against concurrent liked-music syncs; never overwrite files in the
   music folder (yt-dlp keeps its default no-overwrite behaviour); delete music
   only through liked_music_reconcile.apply_removal_decisions after the owner's

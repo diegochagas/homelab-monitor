@@ -109,6 +109,12 @@ class Config:
         default_factory=lambda: _env("LIKED_MUSIC_REMOVE_UNLIKED", "false").lower() in ("1", "true", "yes")
     )
     liked_music_max_removals: int = field(default_factory=lambda: _int("LIKED_MUSIC_MAX_REMOVALS", 25))
+    # Lyrics: write "<song>.lrc" from lrclib.net next to each song on the push
+    # target (needs the Jellyfin settings below for the song metadata).
+    liked_music_lyrics: bool = field(
+        default_factory=lambda: _env("LIKED_MUSIC_LYRICS", "false").lower() in ("1", "true", "yes")
+    )
+    liked_music_lyrics_per_run: int = field(default_factory=lambda: _int("LIKED_MUSIC_LYRICS_PER_RUN", 150))
     # Optional playlist servers (each off unless its URL is set). *_DIR is the
     # music folder as that server sees it (containers mount it elsewhere).
     liked_music_jellyfin_url: str = field(default_factory=lambda: _env("LIKED_MUSIC_JELLYFIN_URL").rstrip("/"))
