@@ -21,9 +21,10 @@ from typing import Callable, Dict, List, Optional
 
 from .http_json import HttpJsonError
 from .liked_music_state import INDEX_NAME, LYRICS_STATE_NAME, load_state, save_state
-from .lyrics_lrclib import LrclibClient, Lyrics, SongMeta
+from .lyrics_lrclib import LookupIncomplete, LrclibClient, Lyrics, SongMeta
 
 RETRY_MISSES_DAYS = 30
+DEFERRED_RETRY_HOURS = 12  # songs whose outside lookup was busy; later, not 30 days
 SAVE_EVERY = 25  # lookups between state saves, so an interrupted backfill resumes
 BACKFILL_BATCH = 50
 BUSY_COOLDOWN_SECONDS = 900  # after a batch failed on a busy lrclib (its busy spells last hours)
@@ -37,6 +38,7 @@ class LyricsOutcome:
     written: List[str] = field(default_factory=list)
     misses: int = 0
     errors: List[str] = field(default_factory=list)
+    deferred: int = 0  # lrclib's outside lookup was busy; retried after DEFERRED_RETRY_HOURS
 
 
 def lrc_name(filename: str) -> str:
@@ -48,10 +50,10 @@ def lrc_name(filename: str) -> str:
 
 
 def due_songs(index: Dict[str, str], checked: Dict[str, dict], now: float) -> List[str]:
-    """Video ids never looked up, or whose last miss is older than RETRY_MISSES_DAYS."""
-    retry_after = RETRY_MISSES_DAYS * 86400
+    """Video ids never looked up, or whose miss (or deferral) is old enough to try again."""
+    retry_after = {"none": RETRY_MISSES_DAYS * 86400, "deferred": DEFERRED_RETRY_HOURS * 3600}
     return [vid for vid in index if vid not in checked
-            or (checked[vid].get("result") == "none" and now - checked[vid].get("at", 0) > retry_after)]
+            or now - checked[vid].get("at", 0) > retry_after.get(checked[vid].get("result"), float("inf"))]
 
 
 def add_missing_lyrics(folder: str, jellyfin, lookup: Callable[[SongMeta], Optional[Lyrics]],
@@ -84,19 +86,36 @@ def _lyrics_for_song(name: str, song: dict, tools: tuple, checked: Dict[str, dic
         checked[vid] = {"result": "present"}
         return True
     try:
-        found = lookup(SongMeta(song["title"], song["artist"], song["album"], song["seconds"]))
-        if found:
-            write_file(lrc_name(name), found.text)
-            jellyfin.refresh_item(song["id"])
+        result = _fetch_and_write(name, song, jellyfin, lookup, write_file)
     except (HttpJsonError, OSError, RuntimeError) as error:
         outcome.errors.append(f"lyrics for {name!r}: {error}")
         return False
-    checked[vid] = {"result": ("synced" if found.synced else "plain") if found else "none"}
-    if found:
+    checked[vid] = {"result": result}
+    _count(result, name, outcome)
+    return True
+
+
+def _fetch_and_write(name: str, song: dict, jellyfin, lookup: Callable[[SongMeta], Optional[Lyrics]],
+                     write_file: Callable[[str, str], None]) -> str:
+    """'synced', 'plain', 'none' or 'deferred'; on a hit writes the .lrc and refreshes Jellyfin."""
+    try:
+        found = lookup(SongMeta(song["title"], song["artist"], song["album"], song["seconds"]))
+    except LookupIncomplete:
+        return "deferred"
+    if not found:
+        return "none"
+    write_file(lrc_name(name), found.text)
+    jellyfin.refresh_item(song["id"])
+    return "synced" if found.synced else "plain"
+
+
+def _count(result: str, name: str, outcome: LyricsOutcome) -> None:
+    if result in ("synced", "plain"):
         outcome.written.append(name)
+    elif result == "deferred":
+        outcome.deferred += 1
     else:
         outcome.misses += 1
-    return True
 
 
 def backfill(folder: str, run_batch: Callable[[int], LyricsOutcome], take_lock: Callable[[], object],
@@ -110,16 +129,21 @@ def backfill(folder: str, run_batch: Callable[[int], LyricsOutcome], take_lock: 
         batch = _locked_batch(run_batch, take_lock, sleep)
         if batch is None:
             continue
-        total.written += batch.written
-        total.misses += batch.misses
-        print(f"lyrics: {len(total.written)} written, {total.misses} not found", flush=True)
+        _add_batch(total, batch)
         failures = failures + 1 if batch.errors else 0
         if batch.errors:
             total.errors = batch.errors
             sleep(BUSY_COOLDOWN_SECONDS)
-        elif not batch.written and not batch.misses:
+        elif not batch.written and not batch.misses and not batch.deferred:
             break
     return total
+
+
+def _add_batch(total: LyricsOutcome, batch: LyricsOutcome) -> None:
+    total.written += batch.written
+    total.misses += batch.misses
+    total.deferred += batch.deferred
+    print(f"lyrics: {len(total.written)} written, {total.misses} not found, {total.deferred} deferred", flush=True)
 
 
 def _locked_batch(run_batch: Callable[[int], LyricsOutcome], take_lock: Callable[[], object],

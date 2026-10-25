@@ -6,11 +6,13 @@ import unittest
 from typing import Dict, List
 
 from homelab_monitor.http_json import HttpJsonError
-from homelab_monitor.liked_music_lyrics import (BUSY_COOLDOWN_SECONDS, MAX_FAILED_BATCHES, RETRY_MISSES_DAYS,
+from homelab_monitor.liked_music_lyrics import (BUSY_COOLDOWN_SECONDS, DEFERRED_RETRY_HOURS, MAX_FAILED_BATCHES,
+                                                RETRY_MISSES_DAYS,
                                                 LyricsOutcome, add_missing_lyrics, backfill, due_songs, lrc_name)
 from homelab_monitor.liked_music_remote import write_remote_file
 from homelab_monitor.liked_music_state import INDEX_NAME, LYRICS_STATE_NAME, forget_songs, load_state, save_state
-from homelab_monitor.lyrics_lrclib import Lyrics, LrclibClient, SongMeta, best_match, clean_title
+from homelab_monitor.lyrics_lrclib import (LookupIncomplete, Lyrics, LrclibClient, SongMeta, best_match,
+                                           clean_title)
 
 SYNCED = "[00:13.13] Yeah\n[00:27.16] I've been tryna call"
 
@@ -28,6 +30,8 @@ class FakeLrclib:
         answer = self.answers.get(path, "missing")
         if answer == "missing":
             raise HttpJsonError(f"GET {url} -> HTTP 404: not found")
+        if isinstance(answer, Exception):
+            raise answer
         return answer
 
 
@@ -37,10 +41,20 @@ class LrclibClientTest(unittest.TestCase):
         return LrclibClient(send=self.fake, pause=lambda seconds: None)
 
     def test_exact_match_for_tracks_with_an_album(self) -> None:
-        found = self.client({"/api/get": {"duration": 200, "syncedLyrics": SYNCED}}).find(
+        found = self.client({"/api/get-cached": {"duration": 200, "syncedLyrics": SYNCED}}).find(
             SongMeta("Blinding Lights", "The Weeknd", "After Hours", 200))
         self.assertEqual(found, Lyrics(SYNCED, True))
         self.assertEqual(len(self.fake.urls), 1)
+
+    def test_busy_outside_lookup_is_skipped_for_the_search(self) -> None:
+        answers = {"/api/get": HttpJsonError("GET x -> HTTP 503: busy"),
+                   "/api/search": [{"duration": 200, "syncedLyrics": SYNCED}]}
+        self.assertTrue(self.client(answers).find(SongMeta("A", "B", "Album", 200)).synced)
+
+    def test_busy_outside_lookup_without_a_search_hit_is_deferred(self) -> None:
+        answers = {"/api/get": HttpJsonError("GET x -> HTTP 503: busy"), "/api/search": []}
+        with self.assertRaises(LookupIncomplete):
+            self.client(answers).find(SongMeta("A", "B", "Album", 200))
 
     def test_search_rejects_a_different_length_version(self) -> None:
         answers = {"/api/search": [{"duration": 260, "syncedLyrics": SYNCED}]}
@@ -51,14 +65,14 @@ class LrclibClientTest(unittest.TestCase):
         self.assertIn("q=Kiss+The+Girl", self.fake.urls[-1])
 
     def test_busy_service_is_waited_out(self) -> None:
-        answers = iter([HttpJsonError("GET x -> HTTP 503: busy"), {"duration": 100, "syncedLyrics": SYNCED}])
+        answers = iter([HttpJsonError("GET x -> HTTP 503: busy"), [{"duration": 100, "syncedLyrics": SYNCED}]])
         def busy_once(*args, **kwargs):
             answer = next(answers)
             if isinstance(answer, Exception):
                 raise answer
             return answer
         waits = []
-        found = LrclibClient(send=busy_once, pause=waits.append).find(SongMeta("A", "B", "Album", 100))
+        found = LrclibClient(send=busy_once, pause=waits.append).find(SongMeta("A", "B", "", 100))
         self.assertTrue(found.synced)
         self.assertEqual(waits, [1.0, 5])
 
@@ -144,6 +158,15 @@ class LyricsStepTest(unittest.TestCase):
     def test_limit_caps_lookups_per_run(self) -> None:
         self.run_step(limit=1)
         self.assertEqual(len(load_state(self.folder, LYRICS_STATE_NAME, {})), 1)
+
+    def test_deferred_song_is_retried_after_hours_not_weeks(self) -> None:
+        def busy_outside(meta):
+            raise LookupIncomplete("busy")
+        add_missing_lyrics(self.folder, self.jellyfin, busy_outside, self.written.__setitem__, 10, clock=lambda: 0.0)
+        index, checked = load_state(self.folder, INDEX_NAME, {}), load_state(self.folder, LYRICS_STATE_NAME, {})
+        self.assertEqual(checked["hit"]["result"], "deferred")
+        self.assertNotIn("hit", due_songs(index, checked, 3600.0))
+        self.assertIn("hit", due_songs(index, checked, DEFERRED_RETRY_HOURS * 3600 + 1))
 
     def test_service_failure_stops_without_recording(self) -> None:
         def offline(meta):
