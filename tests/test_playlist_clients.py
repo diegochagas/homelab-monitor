@@ -32,7 +32,9 @@ class FakeJellyfinApi:
 
     def _library(self, kind: str) -> dict:
         if kind == "Playlist":
-            return {"Items": [{"Name": name, "Id": name} for name in self.playlists]}
+            own = [{"Name": name, "Id": name, "Path": f"/config/data/playlists/{name}"} for name in self.playlists]
+            from_file = [{"Name": "Liked", "Id": "m3u", "Path": f"{JELLYFIN_DIR}/Liked.m3u8"}]
+            return {"Items": from_file + own}
         return {"Items": [{"Id": i, "Path": f"{JELLYFIN_DIR}/{f}"} for i, f in self.songs.items()]}
 
     def _playlist(self, method: str, parts: List[str], query: dict):
@@ -69,6 +71,9 @@ class JellyfinPlaylistsTest(unittest.TestCase):
         self.assertEqual(ready, ["C.m4a", "B.opus"])
         self.assertEqual(self.api.playlists["Liked"], ["1", "2", "3"])
         self.assertEqual(self.api.moves, 0)
+
+    def test_playlist_files_in_the_library_are_not_the_editable_playlist(self) -> None:
+        self.assertEqual(jellyfin(self.api).playlists(), {"Liked": "Liked", "Christians": "Christians"})
 
     def test_api_key_travels_in_the_header_only(self) -> None:
         jellyfin(self.api).playlists()
