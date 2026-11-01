@@ -2,7 +2,7 @@
 
 ![Python](https://img.shields.io/badge/Python-3.8%2B-blue)
 ![License](https://img.shields.io/github/license/diegochagas/homelab-monitor)
-![Version](https://img.shields.io/badge/version-1.1.0-blue)
+![Version](https://img.shields.io/badge/version-1.4.0-blue)
 
 A Telegram bot that watches a small homelab: one always-on **central** server
 runs the bot, other Linux machines run a lightweight **agent**, and you get
@@ -31,7 +31,7 @@ failed backups.
 │   └─ SQLite state                 │        │   optional: every 6 h download │
 │                                   │        │   new YouTube Music likes      │
 │                                   │        │   (yt-dlp → music folder)      │
-│                                   │        │   + playlist sync, unlikes     │
+│                                   │        │   + .m3u8 playlists, unlikes   │
 └───────────────┬───────────────────┘        └────────────────────────────────┘
                 │ alerts, replies
                 ▼
@@ -42,7 +42,7 @@ failed backups.
 | ----- | ------- | ------------ |
 | `homelab_monitor.bot` | Central server, as a Docker container | Telegram commands, alerts, endpoint for agents |
 | `homelab_monitor.agent` | Any Linux machine, systemd user service | Pushes metrics (and the last backup result) to the central |
-| `homelab_monitor.liked_music` | Inside the agent, optional | Downloads songs newly liked on YouTube Music into a folder, keeps the server playlists in step and (opt-in) deletes unliked songs |
+| `homelab_monitor.liked_music` | Inside the agent, optional | Downloads songs newly liked on YouTube Music (and other playlists) into a folder, writes `.m3u8` playlist files next to them, keeps a Jellyfin playlist in step and (opt-in) deletes unliked songs |
 
 The central runs as a container on purpose: appliance-style distros (ZimaOS,
 CasaOS, …) keep `/etc` and root's crontab on a system partition that OTA
@@ -331,25 +331,24 @@ format (Opus or m4a) with cover art and tags, named `Artist - Title`.
 Each download is recorded in `.library-index.json` (video id → file) in
 `LIKED_MUSIC_DIR`. Two optional steps run after every sync:
 
-- **New likes join the server playlists.** With `LIKED_MUSIC_JELLYFIN_*` set
-  they're appended to the Jellyfin playlist, with `LIKED_MUSIC_SWING_*` added
-  to the Swing Music one. Neither is reordered: Jellyfin's move endpoint
-  refuses API keys, and Swing 2.1.4 stores playlists unordered. Sort the
-  playlist by date added in your player to see new likes first. A song a
-  server hasn't indexed yet stays queued in `.playlist-pending.json`; Swing
-  (which doesn't notice files rsync adds) is asked to rescan its library, and
-  the 15-minute retry adds the song once it's indexed.
+- **New likes join the Jellyfin playlist.** With `LIKED_MUSIC_JELLYFIN_*` set
+  they're appended to that playlist. It isn't reordered (Jellyfin's move
+  endpoint refuses API keys); the `.m3u8` file below has the right order. A
+  song Jellyfin hasn't indexed yet stays queued in `.playlist-pending.json`
+  and the 15-minute retry adds it once it's indexed.
 - **Unlikes wait for your answer** (`LIKED_MUSIC_REMOVE_UNLIKED=true`). The
   agent lists the whole Liked Music playlist and compares it with the list it
   saved last time (`.liked-ids.json`). A song that dropped out goes into
   `.removal-pending.json`; nothing is deleted. The heartbeat reports the
   queue and the bot sends one Telegram message per new batch:
   - `/unliked` shows what is waiting.
-  - `/unliked_delete [server]` removes those songs from every playlist on
-    both servers, deletes their files on the push target (or in
-    `LIKED_MUSIC_DIR`) and drops their archive lines, so liking one again
-    downloads it again. Players that sync from the server (Finamp downloads)
-    drop their copy on their next sync.
+  - `/unliked_delete [server]` removes those songs from every Jellyfin
+    playlist and the `.m3u8` files, deletes their files on the push target
+    (or in `LIKED_MUSIC_DIR`) and drops their archive lines, so liking one
+    again downloads it again. Copies synced from the folder (Syncthing) and
+    players that sync from the server drop them on their next sync.
+  - A song still in a mirrored playlist (below) is never queued: unliking
+    it keeps the file.
   - `/unliked_keep [server]` keeps the files and clears the queue.
   - Liking a song again before you answer takes it out of the queue.
 
@@ -357,14 +356,41 @@ Each download is recorded in `.library-index.json` (video id → file) in
   and that looks exactly like an unlike. Such a file can't be downloaded
   again, so a person decides.
 
+### Playlist files and mirrored playlists
+
+Playlists live as plain `.m3u8` files next to the songs, so every player that
+reads M3U (Poweramp or Musicolet on a phone, Strawberry on a desktop,
+Navidrome, …) and every synced copy of the folder (Syncthing) has them, in
+order, with no server in between.
+
+- `LIKED_MUSIC_M3U_NAME=YouTube Liked` writes `YouTube Liked.m3u8`: the
+  library's Liked Music songs, newest like first. The agent lists Liked
+  Music on every run for it (it does that anyway with the unlike sync).
+- `LIKED_MUSIC_PLAYLISTS=Christians=https://music.youtube.com/playlist?list=…`
+  mirrors another YouTube Music playlist (several: `Name=url;Other=url`).
+  Each run lists it, downloads the songs the library doesn't have yet and
+  writes `Christians.m3u8` in the playlist's own order. Manage the playlist
+  on YouTube Music; the file follows. Its songs count as wanted: unliking
+  one never queues it for deletion. Removing a song from the mirrored
+  playlist only drops it from the file; the library keeps it.
+- `Christians.extra.m3u8` in `LIKED_MUSIC_DIR` (one library filename per
+  line, `#` comments allowed) appends songs by hand, for videos YouTube
+  dropped that are still in the library and therefore can't be put back in
+  the YouTube Music playlist. They're protected from the unlike removal too.
+- Files are written over SSH into the push target (or into `LIKED_MUSIC_DIR`
+  without one), only when their content changed (`.m3u-written.json`), so a
+  run with nothing new doesn't make every synced device re-download them.
+  Mirror or file trouble is reported as `playlist_error` and never counts as
+  a failed sync.
+
 ### Lyrics
 
 With `LIKED_MUSIC_LYRICS=true` (plus the Jellyfin settings and a push target)
 each run looks up lyrics for up to `LIKED_MUSIC_LYRICS_PER_RUN` (default 150)
 songs on [lrclib.net](https://lrclib.net), a free open lyrics database, and
 writes `<song name>.lrc` next to the audio file on the server. Jellyfin (so
-Finamp too) and Swing Music both read that sidecar: synced lyrics scroll with
-the song, plain ones show as text.
+Finamp too), Poweramp and most desktop players read that sidecar: synced
+lyrics scroll with the song, plain ones show as text.
 
 - The lookup uses the title, artist, album and length Jellyfin read from the
   file, so a song is tried once Jellyfin has scanned it. A search result only
@@ -405,19 +431,21 @@ homelab-monitor/
 ├── homelab_monitor/
 │   ├── bot.py          # central: Telegram polling, alert loop, wiring
 │   ├── agent.py        # agent: heartbeat loop
-│   ├── liked_music.py  # agent: download new YouTube Music likes
+│   ├── liked_music.py  # agent: download new YouTube Music likes, one run's steps
+│   ├── liked_music_settings.py  # agent: sync settings and run result
+│   ├── liked_music_sources.py  # agent: mirror other YouTube Music playlists
+│   ├── liked_music_m3u.py  # agent: .m3u8 playlist files next to the songs
 │   ├── liked_music_push.py  # agent: upload them to the music server
 │   ├── liked_music_loop.py  # agent: sync timer + Telegram decision inbox
 │   ├── liked_music_reconcile.py  # agent: playlist adds, unlike queue, confirmed deletes
 │   ├── unlike_confirmations.py  # central: asks on Telegram, relays the answer
 │   ├── liked_music_servers.py  # agent: builds the clients from the config
 │   ├── liked_music_ytdlp_output.py  # agent: parse a yt-dlp run's output
-│   ├── liked_music_state.py  # agent: index, liked list, playlist queue files
+│   ├── liked_music_state.py  # agent: index, liked list, playlist lists, queue files
 │   ├── liked_music_remote.py  # agent: list Liked Music, delete over SSH
 │   ├── liked_music_lyrics.py  # agent: lyrics sidecars for the library
 │   ├── lyrics_lrclib.py  # agent: lrclib.net lookups with length matching
 │   ├── jellyfin_playlists.py  # agent: Jellyfin playlist API
-│   ├── swing_playlists.py  # agent: Swing Music playlist API
 │   ├── http_json.py    # JSON-over-HTTP helper with timeouts
 │   ├── commands.py     # /command handlers
 │   ├── formatting.py   # Telegram message rendering
@@ -453,7 +481,7 @@ homelab-monitor/
 | `/temperature` says no sensor | Nothing under `/sys/class/hwmon` — normal on some VMs; not an error |
 | `/ports` shows no process names | The container needs `CAP_SYS_PTRACE` and `apparmor=unconfined` (both set by the compose file) |
 | Stale SERVER BACKUP alert | The server-side backup job stopped running — check its scheduler (`sudo crontab -l`) |
-| Liked music: "playlist/unlike sync skipped" | A `LIKED_MUSIC_JELLYFIN_*` or `LIKED_MUSIC_SWING_*` value is empty while its URL is set; the message names it |
+| Liked music: "playlist/unlike sync skipped" | A `LIKED_MUSIC_JELLYFIN_*` value is empty while its URL is set; the message names it |
 | Liked music: "songs left Liked Music at once" | More than `LIKED_MUSIC_MAX_REMOVALS` vanished in one listing; nothing was deleted. If you really unliked that many, raise the limit for one run |
 | Liked music not downloading | `python3 -m homelab_monitor.liked_music monitor.env --once` — "Sign in to confirm" means the browser's YouTube session expired (open YouTube Music in it once); "not found" means set `LIKED_MUSIC_YTDLP` |
 | Container name already in use | The installer replaces a stray `homelab-monitor` container automatically; otherwise `sudo docker rm -f homelab-monitor` |

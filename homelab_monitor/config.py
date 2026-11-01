@@ -115,18 +115,19 @@ class Config:
         default_factory=lambda: _env("LIKED_MUSIC_LYRICS", "false").lower() in ("1", "true", "yes")
     )
     liked_music_lyrics_per_run: int = field(default_factory=lambda: _int("LIKED_MUSIC_LYRICS_PER_RUN", 150))
-    # Optional playlist servers (each off unless its URL is set). *_DIR is the
-    # music folder as that server sees it (containers mount it elsewhere).
+    # Optional Jellyfin playlist (off unless the URL is set). *_DIR is the
+    # music folder as Jellyfin sees it (its container mounts it elsewhere).
     liked_music_jellyfin_url: str = field(default_factory=lambda: _env("LIKED_MUSIC_JELLYFIN_URL").rstrip("/"))
     liked_music_jellyfin_api_key: str = field(default_factory=lambda: _env("LIKED_MUSIC_JELLYFIN_API_KEY"))
     liked_music_jellyfin_user: str = field(default_factory=lambda: _env("LIKED_MUSIC_JELLYFIN_USER"))
     liked_music_jellyfin_dir: str = field(default_factory=lambda: _env("LIKED_MUSIC_JELLYFIN_DIR"))
     liked_music_jellyfin_playlist: str = field(default_factory=lambda: _env("LIKED_MUSIC_JELLYFIN_PLAYLIST"))
-    liked_music_swing_url: str = field(default_factory=lambda: _env("LIKED_MUSIC_SWING_URL").rstrip("/"))
-    liked_music_swing_user: str = field(default_factory=lambda: _env("LIKED_MUSIC_SWING_USER"))
-    liked_music_swing_password: str = field(default_factory=lambda: _env("LIKED_MUSIC_SWING_PASSWORD"))
-    liked_music_swing_dir: str = field(default_factory=lambda: _env("LIKED_MUSIC_SWING_DIR"))
-    liked_music_swing_playlist: str = field(default_factory=lambda: _env("LIKED_MUSIC_SWING_PLAYLIST"))
+    # Playlist files: with LIKED_MUSIC_M3U_NAME set, "<name>.m3u8" (Liked Music,
+    # newest first) and one "<Name>.m3u8" per LIKED_MUSIC_PLAYLISTS entry are
+    # written next to the songs after each sync. LIKED_MUSIC_PLAYLISTS mirrors
+    # other YouTube Music playlists into the library: "Name=url;Other=url".
+    liked_music_m3u_name: str = field(default_factory=lambda: _env("LIKED_MUSIC_M3U_NAME"))
+    liked_music_playlists: str = field(default_factory=lambda: _env("LIKED_MUSIC_PLAYLISTS"))
 
     def host_path(self, path):
         """Map a host filesystem path to where it is visible from here."""

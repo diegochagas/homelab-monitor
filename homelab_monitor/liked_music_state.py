@@ -4,9 +4,13 @@
                         the library, so an unliked video maps back to its file.
 - .liked-ids.json       the Liked Music list (video ids, newest first) seen on
                         the last complete listing; unlikes are ids that drop out.
-- .playlist-pending.json  {"jellyfin": [ids], "swing": [ids]} downloads not yet
-                        added to the servers' liked playlists (the server may not
-                        have indexed the file yet), retried on every run.
+- .playlist-pending.json  {"jellyfin": [ids]} downloads not yet added to the
+                        server's liked playlist (it may not have indexed the
+                        file yet), retried on every run.
+- .playlist-ids.json    {playlist name: [video ids]} of every mirrored playlist
+                        (LIKED_MUSIC_PLAYLISTS) as last listed, in its order.
+- .m3u-written.json     {playlist file: sha1 of its content} so an unchanged
+                        .m3u8 isn't rewritten (and re-synced) after every run.
 - .removal-pending.json  {video_id: filename} songs that left Liked Music and
                         wait for the owner's confirmation (Telegram) before anything
                         is deleted; a re-like drops them from this queue.
@@ -28,6 +32,9 @@ PENDING_NAME = ".playlist-pending.json"
 ARCHIVE_NAME = ".archive.txt"
 REMOVAL_PENDING_NAME = ".removal-pending.json"
 LYRICS_STATE_NAME = ".lyrics-checked.json"
+PLAYLIST_IDS_NAME = ".playlist-ids.json"
+M3U_HASHES_NAME = ".m3u-written.json"
+PLAYLIST_SERVERS = ("jellyfin",)
 
 
 def load_state(folder: str, name: str, default: Any) -> Any:
@@ -51,15 +58,21 @@ def save_state(folder: str, name: str, value: Any) -> None:
     os.replace(temporary, path)
 
 
-def record_downloads(folder: str, downloads: Dict[str, str]) -> None:
-    """Add new {video_id: filename} pairs to the index and the playlist queues."""
+def record_downloads(folder: str, downloads: Dict[str, str], liked: bool = True) -> None:
+    """Add new {video_id: filename} pairs to the index and, for likes, the playlist queue.
+
+    Songs mirrored from another playlist (liked=False) are indexed but never
+    queued for the server's liked playlist.
+    """
     if not downloads:
         return
     index: Dict[str, str] = load_state(folder, INDEX_NAME, {})
     index.update(downloads)
     save_state(folder, INDEX_NAME, index)
-    pending: Dict[str, List[str]] = load_state(folder, PENDING_NAME, {"jellyfin": [], "swing": []})
-    for server in ("jellyfin", "swing"):
+    if not liked:
+        return
+    pending: Dict[str, List[str]] = load_state(folder, PENDING_NAME, {})
+    for server in PLAYLIST_SERVERS:
         queued = pending.setdefault(server, [])
         queued[:0] = [vid for vid in downloads if vid not in queued]
     save_state(folder, PENDING_NAME, pending)
@@ -74,7 +87,7 @@ def forget_songs(folder: str, video_ids: Iterable[str]) -> None:
     gone = set(video_ids)
     index: Dict[str, str] = load_state(folder, INDEX_NAME, {})
     save_state(folder, INDEX_NAME, {vid: name for vid, name in index.items() if vid not in gone})
-    pending: Dict[str, List[str]] = load_state(folder, PENDING_NAME, {"jellyfin": [], "swing": []})
+    pending: Dict[str, List[str]] = load_state(folder, PENDING_NAME, {})
     save_state(folder, PENDING_NAME, {server: [v for v in ids if v not in gone] for server, ids in pending.items()})
     checked: Dict[str, dict] = load_state(folder, LYRICS_STATE_NAME, {})
     if gone & checked.keys():  # a re-like downloads the song again, so look its lyrics up again too

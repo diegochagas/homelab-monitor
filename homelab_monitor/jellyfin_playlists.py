@@ -11,6 +11,7 @@ from typing import Callable, Dict, List
 from .http_json import build_url, request_json
 
 Send = Callable[..., object]
+PLAYLIST_FILE_EXTENSIONS = (".m3u", ".m3u8", ".pls", ".wpl", ".zpl")
 
 
 @dataclass
@@ -54,10 +55,16 @@ class JellyfinPlaylists:
         return self._user_id
 
     def playlists(self) -> Dict[str, str]:
-        """{playlist name: id} for the user."""
+        """{playlist name: id} for the user's own playlists.
+
+        Playlist files the library scan picked up (the sync's own .m3u8 next
+        to the songs) show up as read-only playlists with the same names;
+        they're left out so the name maps to the editable one.
+        """
         found = self._call("GET", f"/Users/{self.user_id()}/Items",
-                           {"IncludeItemTypes": "Playlist", "Recursive": "true"})
-        return {item["Name"]: item["Id"] for item in found.get("Items", [])}
+                           {"IncludeItemTypes": "Playlist", "Recursive": "true", "Fields": "Path"})
+        return {item["Name"]: item["Id"] for item in found.get("Items", [])
+                if not (item.get("Path") or "").lower().endswith(PLAYLIST_FILE_EXTENSIONS)}
 
     def remove_files(self, filenames: List[str]) -> int:
         """Remove these songs from every playlist; returns entries removed."""

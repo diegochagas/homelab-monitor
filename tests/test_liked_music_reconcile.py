@@ -8,20 +8,20 @@ from typing import List, Optional
 from homelab_monitor.liked_music_reconcile import (ReconcileDeps, apply_removal_decisions, reconcile_library,
                                                    unliked_ids)
 from homelab_monitor.liked_music_remote import LikedListingError
+from homelab_monitor.liked_music_m3u import EXTRA_SUFFIX
 from homelab_monitor.liked_music_state import (ARCHIVE_NAME, INDEX_NAME, LIKED_SNAPSHOT_NAME, PENDING_NAME,
-                                               REMOVAL_PENDING_NAME, load_state, pending_removals,
-                                               record_downloads, save_state)
+                                               PLAYLIST_IDS_NAME, REMOVAL_PENDING_NAME, load_state,
+                                               pending_removals, record_downloads, save_state)
 
 
 class FakePlaylistServer:
-    """Jellyfin/Swing stand-in: records removals; only `indexed` names can be added."""
+    """Jellyfin stand-in: records removals; only `indexed` names can be added."""
 
     def __init__(self, indexed=(), fail: Optional[Exception] = None):
         self.indexed = set(indexed)
         self.fail = fail
         self.removed: List[str] = []
         self.added: List[str] = []
-        self.scans = 0
 
     def remove_files(self, filenames: List[str]) -> int:
         if self.fail:
@@ -37,9 +37,6 @@ class FakePlaylistServer:
         return ready
 
     add = add_to_top
-
-    def request_scan(self) -> None:
-        self.scans += 1
 
 
 class FakeListing:
@@ -70,14 +67,14 @@ class ReconcileTest(unittest.TestCase):
         save_state(self.folder, INDEX_NAME, {"keep": "Keep.opus", "gone": "Gone.opus", "xian": "Christian.m4a"})
         with open(os.path.join(self.folder, ARCHIVE_NAME), "w", encoding="utf-8") as archive:
             archive.write("youtube keep\nyoutube gone\nyoutube xian\n")
-        self.jellyfin, self.swing, self.delete = FakePlaylistServer(), FakePlaylistServer(), FakeRemoteDelete()
+        self.jellyfin, self.delete = FakePlaylistServer(), FakeRemoteDelete()
 
     def tearDown(self) -> None:
         self.tmp.cleanup()
 
     def deps(self, listing: FakeListing, max_removals: int = 25, **overrides) -> ReconcileDeps:
         fields = dict(folder=self.folder, max_removals=max_removals, list_ids=listing,
-                      delete_files=self.delete, jellyfin=self.jellyfin, swing=self.swing)
+                      delete_files=self.delete, jellyfin=self.jellyfin)
         fields.update(overrides)
         return ReconcileDeps(**fields)
 
@@ -90,7 +87,7 @@ class ReconcileTest(unittest.TestCase):
         save_state(self.folder, LIKED_SNAPSHOT_NAME, ["keep", "gone"])
         outcome = reconcile_library(self.deps(FakeListing(["new", "keep"])))
         self.assertEqual((outcome.queued, outcome.unliked), (["Gone.opus"], []))
-        self.assertEqual((self.jellyfin.removed, self.swing.removed, self.delete.deleted), ([], [], []))
+        self.assertEqual((self.jellyfin.removed, self.delete.deleted), ([], []))
         self.assertEqual(pending_removals(self.folder), {"gone": "Gone.opus"})
         self.assertIn("gone", load_state(self.folder, INDEX_NAME, {}))
         self.assertEqual(load_state(self.folder, LIKED_SNAPSHOT_NAME, None), ["new", "keep"])
@@ -100,7 +97,7 @@ class ReconcileTest(unittest.TestCase):
         reconcile_library(self.deps(FakeListing(["keep"])))
         outcome = apply_removal_decisions(self.deps(FakeListing()), ["gone"], [])
         self.assertEqual(outcome.unliked, ["Gone.opus"])
-        self.assertEqual((self.jellyfin.removed, self.swing.removed), (["Gone.opus"],) * 2)
+        self.assertEqual(self.jellyfin.removed, ["Gone.opus"])
         self.assertEqual(self.delete.deleted, ["Gone.opus", "Gone.lrc"])  # lyrics sidecar goes too
         self.assertNotIn("gone", load_state(self.folder, INDEX_NAME, {}))
         with open(os.path.join(self.folder, ARCHIVE_NAME), encoding="utf-8") as archive:
@@ -148,7 +145,7 @@ class ReconcileTest(unittest.TestCase):
 
     def test_playlist_failure_keeps_file_and_song_queued(self) -> None:
         save_state(self.folder, REMOVAL_PENDING_NAME, {"gone": "Gone.opus"})
-        self.swing.fail = RuntimeError("POST /auth/login -> HTTP 401")
+        self.jellyfin.fail = RuntimeError("GET /Users -> HTTP 401")
         outcome = apply_removal_decisions(self.deps(FakeListing()), ["gone"], [])
         self.assertIn("HTTP 401", outcome.errors[0])
         self.assertEqual(self.delete.deleted, [])
@@ -166,6 +163,21 @@ class ReconcileTest(unittest.TestCase):
         reconcile_library(self.deps(listing, remove_unliked=False))
         self.assertEqual(listing.calls, 0)
 
+    def test_keep_listing_saves_the_list_without_queueing(self) -> None:
+        save_state(self.folder, LIKED_SNAPSHOT_NAME, ["keep", "gone"])
+        reconcile_library(self.deps(FakeListing(["keep"]), remove_unliked=False, keep_listing=True))
+        self.assertEqual(load_state(self.folder, LIKED_SNAPSHOT_NAME, None), ["keep"])
+        self.assertEqual(pending_removals(self.folder), {})
+
+    def test_songs_still_in_a_mirrored_playlist_are_not_queued(self) -> None:
+        save_state(self.folder, LIKED_SNAPSHOT_NAME, ["keep", "gone", "xian"])
+        save_state(self.folder, PLAYLIST_IDS_NAME, {"Christians": ["xian"]})
+        with open(os.path.join(self.folder, "Christians" + EXTRA_SUFFIX), "w", encoding="utf-8") as extra:
+            extra.write("# kept by hand\nGone.opus\n")
+        outcome = reconcile_library(self.deps(FakeListing(["keep"])))
+        self.assertEqual(outcome.queued, [])
+        self.assertEqual(pending_removals(self.folder), {})
+
     def test_unliked_ids_keeps_list_order(self) -> None:
         self.assertEqual(unliked_ids(["a", "b", "c"], ["b"], {"a": "A", "c": "C"}), ["a", "c"])
 
@@ -180,30 +192,30 @@ class PendingPlaylistAddTest(unittest.TestCase):
     def tearDown(self) -> None:
         self.tmp.cleanup()
 
-    def run_adds(self, jellyfin: FakePlaylistServer, swing: FakePlaylistServer):
+    def run_adds(self, jellyfin: FakePlaylistServer):
         deps = ReconcileDeps(folder=self.folder, max_removals=25, list_ids=FakeListing(),
-                             delete_files=FakeRemoteDelete(), remove_unliked=False, jellyfin=jellyfin, swing=swing)
+                             delete_files=FakeRemoteDelete(), remove_unliked=False, jellyfin=jellyfin)
         return reconcile_library(deps)
 
     def test_newest_download_is_queued_first(self) -> None:
         self.assertEqual(load_state(self.folder, PENDING_NAME, {})["jellyfin"], ["new", "old"])
 
+    def test_mirrored_songs_are_indexed_but_not_queued(self) -> None:
+        record_downloads(self.folder, {"xian": "Christian.m4a"}, liked=False)
+        self.assertIn("xian", load_state(self.folder, INDEX_NAME, {}))
+        self.assertEqual(load_state(self.folder, PENDING_NAME, {})["jellyfin"], ["new", "old"])
+
     def test_songs_not_indexed_yet_stay_queued(self) -> None:
-        outcome = self.run_adds(FakePlaylistServer({"New.opus", "Old.opus"}), FakePlaylistServer({"Old.opus"}))
-        self.assertEqual(outcome.playlist_added, {"jellyfin": 2, "swing": 1})
-        self.assertEqual(load_state(self.folder, PENDING_NAME, {}), {"jellyfin": [], "swing": ["new"]})
+        outcome = self.run_adds(FakePlaylistServer({"Old.opus"}))
+        self.assertEqual(outcome.playlist_added, {"jellyfin": 1})
+        self.assertEqual(load_state(self.folder, PENDING_NAME, {}), {"jellyfin": ["new"]})
         self.assertEqual(outcome.playlist_waiting, 1)
 
-    def test_server_missing_a_song_is_asked_to_rescan(self) -> None:
-        jellyfin, swing = FakePlaylistServer({"New.opus", "Old.opus"}), FakePlaylistServer({"Old.opus"})
-        self.run_adds(jellyfin, swing)
-        self.assertEqual((jellyfin.scans, swing.scans), (0, 1))
-
-    def test_one_server_down_does_not_block_the_other(self) -> None:
+    def test_server_down_keeps_the_queue_and_reports(self) -> None:
         down = FakePlaylistServer(fail=RuntimeError("GET /Users -> unreachable"))
-        outcome = self.run_adds(down, FakePlaylistServer({"New.opus", "Old.opus"}))
+        outcome = self.run_adds(down)
         self.assertIn("jellyfin playlist add: GET /Users -> unreachable", outcome.errors)
-        self.assertEqual(load_state(self.folder, PENDING_NAME, {}), {"jellyfin": ["new", "old"], "swing": []})
+        self.assertEqual(load_state(self.folder, PENDING_NAME, {}), {"jellyfin": ["new", "old"]})
 
 
 if __name__ == "__main__":
