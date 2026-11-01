@@ -64,11 +64,15 @@ class LikedMusicLoop:
         self.last_result = result
         if result.lyrics_error:
             log.info("lyrics lookups paused until the next run: %s", result.lyrics_error[:300])
+        if result.playlist_error:
+            log.warning("playlists: %s", result.playlist_error[:300])
         if result.error:
             log.warning("liked music sync failed: %s", result.error)
         else:
-            log.info("liked music sync: %d new, %d uploaded, %d lyrics added, %d unliked waiting for confirmation",
-                     len(result.new_titles), result.pushed, result.lyrics_added, len(result.queued))
+            log.info("liked music sync: %d new, %d uploaded, %d mirrored, %d playlist file(s) written, %d lyrics added, "
+                     "%d unliked waiting for confirmation", len(result.new_titles), result.pushed,
+                     sum(result.mirrored.values()), len(result.playlists_written), result.lyrics_added,
+                     len(result.queued))
         self.apply_submitted()
         return result
 
