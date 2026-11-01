@@ -60,12 +60,12 @@ class UnlikeSettingsTest(unittest.TestCase):
     def test_servers_are_off_without_url(self) -> None:
         with mock.patch.dict("os.environ", {}, clear=True):
             settings = unlike_settings_from_config(Config())
-        self.assertEqual((settings.jellyfin, settings.swing, settings.remove_unliked), (None, None, False))
+        self.assertEqual((settings.jellyfin, settings.remove_unliked), (None, False))
 
     def test_half_configured_server_names_missing_fields(self) -> None:
-        env = {"LIKED_MUSIC_SWING_URL": "http://sw", "LIKED_MUSIC_SWING_USER": "admin"}
+        env = {"LIKED_MUSIC_JELLYFIN_URL": "http://jf", "LIKED_MUSIC_JELLYFIN_USER": "admin"}
         with mock.patch.dict("os.environ", env, clear=True):
-            with self.assertRaisesRegex(ValueError, "LIKED_MUSIC_SWING_PASSWORD, LIKED_MUSIC_SWING_DIR"):
+            with self.assertRaisesRegex(ValueError, "LIKED_MUSIC_JELLYFIN_API_KEY, LIKED_MUSIC_JELLYFIN_DIR"):
                 unlike_settings_from_config(Config())
 
 

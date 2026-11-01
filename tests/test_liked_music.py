@@ -76,10 +76,10 @@ class LikedMusicSyncTest(unittest.TestCase):
 
     def test_half_configured_server_keeps_downloading_and_reports(self) -> None:
         settings = make_settings(self.folder)
-        settings.unlike_error = "LIKED_MUSIC_SWING_URL is set but LIKED_MUSIC_SWING_PASSWORD is empty"
+        settings.unlike_error = "LIKED_MUSIC_JELLYFIN_URL is set but LIKED_MUSIC_JELLYFIN_API_KEY is empty"
         result = run_liked_sync(settings, FakeYtDlp(self.folder, [("newSong0001", "Song A")]))
         self.assertEqual(result.new_titles, ["Song A"])
-        self.assertIn("playlist/unlike sync skipped: LIKED_MUSIC_SWING_URL", result.error)
+        self.assertIn("playlist/unlike sync skipped: LIKED_MUSIC_JELLYFIN_URL", result.error)
 
     def test_nothing_new_is_not_an_error(self) -> None:
         result = run_liked_sync(make_settings(self.folder), FakeYtDlp(self.folder))
