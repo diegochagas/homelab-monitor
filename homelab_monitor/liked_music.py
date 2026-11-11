@@ -10,10 +10,13 @@ One run, in order:
 1. download new likes;
 2. mirror the other playlists in LIKED_MUSIC_PLAYLISTS (liked_music_sources);
 3. upload the staged files to the push target, if configured;
-4. liked_music_reconcile: Jellyfin playlist adds and, with
+4. with LIKED_MUSIC_SYNCTHING_URL: songs deleted on a device that shares the
+   library are removed everywhere and disliked (liked_music_device_deletes);
+   check_device_deletes repeats this step alone between runs;
+5. liked_music_reconcile: Jellyfin playlist adds and, with
    LIKED_MUSIC_REMOVE_UNLIKED=true, the unlike queue;
-5. rewrite the .m3u8 playlist files that changed (liked_music_m3u);
-6. lyrics lookups (liked_music_lyrics).
+6. rewrite the .m3u8 playlist files that changed (liked_music_m3u);
+7. lyrics lookups (liked_music_lyrics).
 
 One-off run (prints what it downloaded):
     python3 -m homelab_monitor.liked_music monitor.env --once
@@ -29,68 +32,25 @@ import time
 from typing import Callable, Dict, List
 
 from .config import Config, load_env_file
+from .liked_music_device_deletes import apply_device_deletions
 from .liked_music_m3u import write_playlists
 from .liked_music_push import PushSettings, push_staged_songs
 from .liked_music_reconcile import ReconcileDeps, apply_removal_decisions, reconcile_library
-from .liked_music_servers import build_reconcile_deps, lyrics_step, playlist_lister, playlist_writer
+from .liked_music_servers import (build_device_delete_deps, build_reconcile_deps, lyrics_step, playlist_lister,
+                                  playlist_writer)
 from .liked_music_settings import (  # noqa: F401 - re-exported for the loop, the agent and the tests
     MAX_REPORTED_TITLES, LikedMusicSettings, LikedSyncResult, settings_from_config)
 from .liked_music_sources import mirror_playlist_sources
-from .liked_music_state import ARCHIVE_NAME, record_downloads
+from .liked_music_state import ARCHIVE_NAME, record_downloads  # noqa: F401 - ARCHIVE_NAME re-exported
+from .liked_music_ytdlp_command import (  # noqa: F401 - re-exported for the tests and older callers
+    OUTPUT_TEMPLATE, VIDEO_URL, build_ytdlp_command, build_ytdlp_video_command, ytdlp_environment, ytdlp_options)
 from .liked_music_ytdlp_output import printed_downloads, read_archive_ids, ytdlp_failure_reason
 
 log = logging.getLogger("liked_music")
 
 LOCK_NAME = ".liked-music.lock"
-# Same layout as the manual download script: byte-limited names because long
-# Japanese titles otherwise exceed the 255-byte filename limit.
-OUTPUT_TEMPLATE = "%(artist,uploader).60B - %(title).150B.%(ext)s"
-VIDEO_URL = "https://music.youtube.com/watch?v={}"
 
 Runner = Callable[..., subprocess.CompletedProcess]
-
-
-def ytdlp_options(settings: LikedMusicSettings) -> List[str]:
-    """yt-dlp arguments shared by every download: audio only, tags, archive, output names."""
-    folder = settings.folder
-    return [
-        settings.ytdlp_bin,
-        "--cookies-from-browser", settings.browser, "--ignore-errors",
-        "-x", "--embed-thumbnail", "--embed-metadata",
-        "--sleep-requests", "0.3", "--sleep-interval", "1", "--max-sleep-interval", "3",
-        "--download-archive", os.path.join(folder, ARCHIVE_NAME),
-        "-o", os.path.join(folder, OUTPUT_TEMPLATE),
-        "--print", "after_move:%(id)s\t%(filepath)s",
-    ]
-
-
-def build_ytdlp_command(settings: LikedMusicSettings) -> List[str]:
-    """yt-dlp arguments that fetch only the songs missing from the archive.
-
-    Example: build_ytdlp_command(s)[0] == s.ytdlp_bin
-    """
-    return ytdlp_options(settings) + ["--yes-playlist", "--lazy-playlist", "--break-on-existing",
-                                      settings.playlist_url]
-
-
-def build_ytdlp_video_command(settings: LikedMusicSettings, video_ids: List[str]) -> List[str]:
-    """yt-dlp arguments that fetch these videos (songs of a mirrored playlist).
-
-    Example: build_ytdlp_video_command(s, ["dQw4w9WgXcQ"])[-1] -> ".../watch?v=dQw4w9WgXcQ"
-    """
-    return ytdlp_options(settings) + ["--no-playlist"] + [VIDEO_URL.format(vid) for vid in video_ids]
-
-
-def ytdlp_environment(extra_path: str) -> dict:
-    """Process environment with extra_path prepended to PATH.
-
-    yt-dlp needs a JavaScript runtime (deno) for YouTube's challenges, and a
-    systemd user service doesn't see the PATH additions of a login shell.
-    """
-    env = dict(os.environ)
-    if extra_path:
-        env["PATH"] = extra_path + os.pathsep + env.get("PATH", "")
-    return env
 
 
 def run_liked_sync(
@@ -114,6 +74,35 @@ def run_liked_sync(
         _push_if_configured(settings, push_runner, result)
         _reconcile(settings, runner, push_runner, result)
         return result
+
+
+def _remove_device_deletes(settings: LikedMusicSettings, runner: Runner, ssh_runner: Runner,
+                           result: LikedSyncResult) -> None:
+    """Songs deleted on another device leave the library and get disliked; off without Syncthing settings."""
+    if settings.unlike_error or settings.unlike.syncthing is None:
+        return
+    deps = build_device_delete_deps(_reconcile_deps(settings, runner, ssh_runner), settings.unlike,
+                                    [settings.ytdlp_bin, settings.browser], ytdlp_environment(settings.extra_path), runner)
+    outcome = apply_device_deletions(deps)
+    result.device_deleted, result.disliked = outcome.deleted, outcome.disliked
+    _add_errors(result, outcome.errors)
+
+
+def check_device_deletes(settings: LikedMusicSettings, runner: Runner = subprocess.run,
+                         ssh_runner: Runner = subprocess.run) -> LikedSyncResult:
+    """The device-delete step alone, under the sync lock (the loop runs it between syncs).
+
+    Example: check_device_deletes(settings).device_deleted -> ["A - B.opus"]
+    """
+    result = LikedSyncResult(checked_at=time.time())
+    lock = try_sync_lock(settings.folder)
+    if lock is None:
+        return result  # a sync is running and does this step itself
+    with lock:
+        _remove_device_deletes(settings, runner, ssh_runner, result)
+        if result.device_deleted:
+            _write_playlist_files(settings, ssh_runner, result)  # deleted songs leave the playlist files too
+    return result
 
 
 def _mirror_sources(settings: LikedMusicSettings, runner: Runner, result: LikedSyncResult) -> None:
@@ -147,7 +136,7 @@ def _download_videos(settings: LikedMusicSettings, runner: Runner, video_ids: Li
 
 
 def _reconcile(settings: LikedMusicSettings, runner: Runner, ssh_runner: Runner, result: LikedSyncResult) -> None:
-    """Playlist adds and unlike removals; their errors join the run's error.
+    """Device deletes, playlist adds and unlike removals; their errors join the run's error.
 
     `runner` runs yt-dlp (the Liked Music listing), `ssh_runner` the ssh steps
     (deletes, playlist files, lyrics) on the push target.
@@ -155,6 +144,7 @@ def _reconcile(settings: LikedMusicSettings, runner: Runner, ssh_runner: Runner,
     if settings.unlike_error:
         _add_errors(result, [f"playlist/unlike sync skipped: {settings.unlike_error}"])
         return
+    _remove_device_deletes(settings, runner, ssh_runner, result)  # first: its songs must not be queued as unliked
     outcome = reconcile_library(_reconcile_deps(settings, runner, ssh_runner))
     result.queued = outcome.queued
     result.playlist_added = outcome.playlist_added

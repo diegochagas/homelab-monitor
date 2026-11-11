@@ -36,6 +36,8 @@ class LikedSyncResult:
     pushed: int = 0
     unliked: List[str] = field(default_factory=list)
     queued: List[str] = field(default_factory=list)
+    device_deleted: List[str] = field(default_factory=list)  # deleted on a device, now removed everywhere
+    disliked: int = 0  # of those, disliked on YouTube Music this run
     lyrics_added: int = 0
     lyrics_error: Optional[str] = None  # reported, but not a failed sync: no quick retry for a busy lrclib
     playlist_waiting: int = 0
@@ -52,6 +54,7 @@ class LikedSyncResult:
         summary["new_titles"] = self.new_titles[:MAX_REPORTED_TITLES]
         summary["unliked"] = self.unliked[:MAX_REPORTED_TITLES]
         summary["queued"] = self.queued[:MAX_REPORTED_TITLES]
+        summary["device_deleted"] = self.device_deleted[:MAX_REPORTED_TITLES]
         return summary
 
 

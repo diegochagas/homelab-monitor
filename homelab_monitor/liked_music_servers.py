@@ -2,6 +2,8 @@
 
 Jellyfin is optional: it needs LIKED_MUSIC_JELLYFIN_URL, and a URL with a
 missing field is reported (with the field's name) instead of half-working.
+The same goes for Syncthing (LIKED_MUSIC_SYNCTHING_URL), which reports the
+songs deleted on other devices.
 """
 
 import functools
@@ -11,11 +13,14 @@ from typing import Callable, List, Optional
 
 from .config import Config
 from .jellyfin_playlists import JellyfinPlaylists, JellyfinSettings
+from .liked_music_device_deletes import DeviceDeleteDeps
 from .liked_music_lyrics import LyricsOutcome, add_missing_lyrics
 from .liked_music_m3u import Writer, local_writer
 from .liked_music_reconcile import ReconcileDeps
 from .liked_music_remote import delete_remote_files, list_liked_ids, write_remote_file
 from .lyrics_lrclib import LrclibClient
+from .syncthing_folder import SyncthingFolderSettings, remotely_deleted_files
+from .ytmusic_rating import open_rating_session
 
 Runner = Callable[..., subprocess.CompletedProcess]
 LISTING_TIMEOUT_SECONDS = 900
@@ -28,6 +33,9 @@ class UnlikeSettings:
     jellyfin: Optional[JellyfinSettings] = None
     lyrics: bool = False
     lyrics_per_run: int = 150
+    syncthing: Optional[SyncthingFolderSettings] = None  # set: songs deleted on other devices are removed
+    syncthing_check_minutes: float = 10
+    dislike_deleted: bool = True
 
 
 def unlike_settings_from_config(cfg: Config) -> UnlikeSettings:
@@ -41,7 +49,19 @@ def unlike_settings_from_config(cfg: Config) -> UnlikeSettings:
         jellyfin=_jellyfin_settings(cfg),
         lyrics=cfg.liked_music_lyrics,
         lyrics_per_run=cfg.liked_music_lyrics_per_run,
+        syncthing=_syncthing_settings(cfg),
+        syncthing_check_minutes=cfg.liked_music_syncthing_check_minutes,
+        dislike_deleted=cfg.liked_music_dislike_deleted,
     )
+
+
+def _syncthing_settings(cfg: Config) -> Optional[SyncthingFolderSettings]:
+    if not cfg.liked_music_syncthing_url:
+        return None
+    settings = SyncthingFolderSettings(cfg.liked_music_syncthing_url, cfg.liked_music_syncthing_api_key,
+                                       cfg.liked_music_syncthing_folder)
+    _require("LIKED_MUSIC_SYNCTHING", api_key=settings.api_key, folder=settings.folder_id)
+    return settings
 
 
 def _jellyfin_settings(cfg: Config) -> Optional[JellyfinSettings]:
@@ -81,6 +101,19 @@ def build_reconcile_deps(folder: str, ytdlp: List[str], push_target: str, unlike
         folder=folder, max_removals=unlike.max_removals, list_ids=list_ids, delete_files=delete_files,
         remove_unliked=unlike.remove_unliked, keep_listing=keep_listing,
         jellyfin=JellyfinPlaylists(unlike.jellyfin) if unlike.jellyfin else None,
+    )
+
+
+def build_device_delete_deps(library: ReconcileDeps, unlike: UnlikeSettings, ytdlp: List[str], env: dict,
+                             runner: Runner = subprocess.run) -> DeviceDeleteDeps:
+    """Wire Syncthing's report and the YouTube Music dislike; ytdlp is [binary, browser, ...].
+
+    Example: build_device_delete_deps(deps, unlike, ["yt-dlp", "firefox"], env).open_rating() -> dislike(id)
+    """
+    open_rating = functools.partial(open_rating_session, ytdlp[0], ytdlp[1], env, runner)
+    return DeviceDeleteDeps(
+        library=library, list_deleted=functools.partial(remotely_deleted_files, unlike.syncthing),
+        open_rating=open_rating if unlike.dislike_deleted else None,
     )
 
 

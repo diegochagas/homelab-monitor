@@ -122,6 +122,20 @@ class Config:
     liked_music_jellyfin_user: str = field(default_factory=lambda: _env("LIKED_MUSIC_JELLYFIN_USER"))
     liked_music_jellyfin_dir: str = field(default_factory=lambda: _env("LIKED_MUSIC_JELLYFIN_DIR"))
     liked_music_jellyfin_playlist: str = field(default_factory=lambda: _env("LIKED_MUSIC_JELLYFIN_PLAYLIST"))
+    # Deletes made on a device: with LIKED_MUSIC_SYNCTHING_URL set, the agent asks
+    # the music server's Syncthing (Send Only folder *_FOLDER) which songs another
+    # device deleted, removes them everywhere and dislikes them on YouTube Music
+    # (LIKED_MUSIC_DISLIKE_DELETED=false keeps the rating alone). Checked on every
+    # sync and every *_CHECK_MINUTES in between.
+    liked_music_syncthing_url: str = field(default_factory=lambda: _env("LIKED_MUSIC_SYNCTHING_URL").rstrip("/"))
+    liked_music_syncthing_api_key: str = field(default_factory=lambda: _env("LIKED_MUSIC_SYNCTHING_API_KEY"))
+    liked_music_syncthing_folder: str = field(default_factory=lambda: _env("LIKED_MUSIC_SYNCTHING_FOLDER"))
+    liked_music_syncthing_check_minutes: float = field(
+        default_factory=lambda: _float("LIKED_MUSIC_SYNCTHING_CHECK_MINUTES", 10)
+    )
+    liked_music_dislike_deleted: bool = field(
+        default_factory=lambda: _env("LIKED_MUSIC_DISLIKE_DELETED", "true").lower() in ("1", "true", "yes")
+    )
     # Playlist files: with LIKED_MUSIC_M3U_NAME set, "<name>.m3u8" (Liked Music,
     # newest first) and one "<Name>.m3u8" per LIKED_MUSIC_PLAYLISTS entry are
     # written next to the songs after each sync. LIKED_MUSIC_PLAYLISTS mirrors

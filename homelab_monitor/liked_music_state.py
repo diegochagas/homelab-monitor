@@ -17,6 +17,12 @@
 - .lyrics-checked.json  {video_id: {"result": "synced"|"plain"|"none"|"deferred"|"present",
                         "at": epoch}} lyrics lookups done, so misses are only
                         retried after a while.
+- .device-deleted.json  [video ids] of songs deleted on a device that shares the
+                        library (liked_music_device_deletes): a mirrored
+                        playlist that still lists one doesn't download it again.
+- .dislike-pending.json  [video ids] of those songs not yet disliked on YouTube
+                        Music (retried every run); their archive lines stay
+                        until then, so a still-liked song isn't downloaded again.
 
 Writes go to a temporary file first and are renamed into place, so a crash
 never leaves half a JSON file behind.
@@ -34,6 +40,8 @@ REMOVAL_PENDING_NAME = ".removal-pending.json"
 LYRICS_STATE_NAME = ".lyrics-checked.json"
 PLAYLIST_IDS_NAME = ".playlist-ids.json"
 M3U_HASHES_NAME = ".m3u-written.json"
+DEVICE_DELETED_NAME = ".device-deleted.json"
+DISLIKE_PENDING_NAME = ".dislike-pending.json"
 PLAYLIST_SERVERS = ("jellyfin",)
 
 
@@ -78,11 +86,13 @@ def record_downloads(folder: str, downloads: Dict[str, str], liked: bool = True)
     save_state(folder, PENDING_NAME, pending)
 
 
-def forget_songs(folder: str, video_ids: Iterable[str]) -> None:
-    """Drop unliked songs from the index, the playlist queues and the archive.
+def forget_songs(folder: str, video_ids: Iterable[str], keep_archive: bool = False) -> None:
+    """Drop removed songs from the index, the playlist queues and the archive.
 
     Removing the archive line matters: liking the song again later must
     download it again instead of being skipped as "already downloaded".
+    keep_archive leaves the line for a song that is still liked (deleted on a
+    device, not disliked yet), which the next run would otherwise download again.
     """
     gone = set(video_ids)
     index: Dict[str, str] = load_state(folder, INDEX_NAME, {})
@@ -92,10 +102,12 @@ def forget_songs(folder: str, video_ids: Iterable[str]) -> None:
     checked: Dict[str, dict] = load_state(folder, LYRICS_STATE_NAME, {})
     if gone & checked.keys():  # a re-like downloads the song again, so look its lyrics up again too
         save_state(folder, LYRICS_STATE_NAME, {vid: entry for vid, entry in checked.items() if vid not in gone})
-    _drop_archive_lines(folder, gone)
+    if not keep_archive:
+        drop_archive_lines(folder, gone)
 
 
-def _drop_archive_lines(folder: str, gone: set) -> None:
+def drop_archive_lines(folder: str, gone: set) -> None:
+    """Remove these video ids from yt-dlp's download archive, so they can be downloaded again."""
     path = os.path.join(folder, ARCHIVE_NAME)
     if not os.path.isfile(path):
         return

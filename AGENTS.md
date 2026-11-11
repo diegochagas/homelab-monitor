@@ -14,8 +14,8 @@ This repo follows the dev-playbook (`~/.claude/skills/dev-playbook/PLAYBOOK.md`)
 - Never weaken, skip or delete a test to make it pass.
 - Risk class for this repo: system (runs on every machine) + public repo (keep CLI
   flags and env keys backwards compatible in a patch release).
-- External tools and APIs (Telegram, Docker socket, yt-dlp) are always faked in
-  tests with named fakes (`FakeYtDlp`), never called for real.
+- External tools and APIs (Telegram, Docker socket, yt-dlp, Syncthing, YouTube Music)
+  are always faked in tests with named fakes (`FakeYtDlp`), never called for real.
 - No real paths, IPs, passwords or tokens in code, tests, fixtures or docs:
   they live in the gitignored `monitor.env` / `.env`.
 
@@ -51,5 +51,9 @@ Formatter: none enforced yet (ruff isn't installed on the machines); keep PEP 8.
   Telegram answer (opt-in switch, LIKED_MUSIC_MAX_REMOVALS cap, only songs the
   sync indexed and saw unliked, playlists first, plain filenames); never delete
   on detection alone, because YouTube dropping a removed video looks like an unlike;
+  the one delete without a Telegram answer is liked_music_device_deletes (the owner
+  deleted the file on a device; same LIKED_MUSIC_MAX_REMOVALS cap, only songs the
+  sync indexed, playlists first, and Syncthing is only ever read, never written);
+  a failed YouTube Music dislike is queued (.dislike-pending.json) and retried each run;
   graceful "unavailable" instead of a crash when a sensor, socket or log is missing.
 - README has a "How it works" architecture diagram; update it when the shape changes.

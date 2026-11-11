@@ -16,7 +16,8 @@ from dataclasses import dataclass, field
 from typing import Callable, Dict, List
 
 from .liked_music_remote import LikedListingError
-from .liked_music_state import INDEX_NAME, PLAYLIST_IDS_NAME, load_state, record_downloads, save_state
+from .liked_music_state import (DEVICE_DELETED_NAME, INDEX_NAME, PLAYLIST_IDS_NAME, load_state, record_downloads,
+                                save_state)
 
 ListIds = Callable[[str], List[str]]  # playlist url -> video ids in playlist order
 DownloadIds = Callable[[List[str]], Dict[str, str]]  # video ids -> {id: filename} of those that got through
@@ -80,7 +81,9 @@ def mirror_playlist_sources(folder: str, sources: List[PlaylistSource], list_ids
 def _download_missing(folder: str, name: str, ids: List[str], download_ids: DownloadIds,
                       outcome: MirrorOutcome) -> None:
     index: Dict[str, str] = load_state(folder, INDEX_NAME, {})
-    missing = [vid for vid in ids if vid not in index]
+    # A song deleted on a device stays deleted even while the playlist still lists it.
+    deleted = set(load_state(folder, DEVICE_DELETED_NAME, []))
+    missing = [vid for vid in ids if vid not in index and vid not in deleted]
     outcome.downloaded[name] = 0
     if not missing:
         return
