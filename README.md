@@ -2,7 +2,7 @@
 
 ![Python](https://img.shields.io/badge/Python-3.8%2B-blue)
 ![License](https://img.shields.io/github/license/diegochagas/homelab-monitor)
-![Version](https://img.shields.io/badge/version-1.4.0-blue)
+![Version](https://img.shields.io/badge/version-1.5.0-blue)
 
 A Telegram bot that watches a small homelab: one always-on **central** server
 runs the bot, other Linux machines run a lightweight **agent**, and you get
@@ -31,7 +31,8 @@ failed backups.
 │   └─ SQLite state                 │        │   optional: every 6 h download │
 │                                   │        │   new YouTube Music likes      │
 │                                   │        │   (yt-dlp → music folder)      │
-│                                   │        │   + .m3u8 playlists, unlikes   │
+│                                   │        │   + .m3u8 playlists, unlikes,  │
+│                                   │        │   deletes made on a device     │
 └───────────────┬───────────────────┘        └────────────────────────────────┘
                 │ alerts, replies
                 ▼
@@ -42,7 +43,7 @@ failed backups.
 | ----- | ------- | ------------ |
 | `homelab_monitor.bot` | Central server, as a Docker container | Telegram commands, alerts, endpoint for agents |
 | `homelab_monitor.agent` | Any Linux machine, systemd user service | Pushes metrics (and the last backup result) to the central |
-| `homelab_monitor.liked_music` | Inside the agent, optional | Downloads songs newly liked on YouTube Music (and other playlists) into a folder, writes `.m3u8` playlist files next to them, keeps a Jellyfin playlist in step and (opt-in) deletes unliked songs |
+| `homelab_monitor.liked_music` | Inside the agent, optional | Downloads songs newly liked on YouTube Music (and other playlists) into a folder, writes `.m3u8` playlist files next to them, keeps a Jellyfin playlist in step, (opt-in) deletes unliked songs and (opt-in) removes everywhere and dislikes a song you deleted on one device |
 
 The central runs as a container on purpose: appliance-style distros (ZimaOS,
 CasaOS, …) keep `/etc` and root's crontab on a system partition that OTA
@@ -407,6 +408,51 @@ lyrics scroll with the song, plain ones show as text.
   ```bash
   python3 -m homelab_monitor.liked_music_lyrics monitor.env --limit 5000
   ```
+
+### Deleting a song on a phone
+
+If Syncthing copies the library to your phones and laptops, deleting a song
+on one of them can remove it everywhere and dislike it on YouTube Music
+(which also takes it out of Liked Music):
+
+```
+phone A: delete song ──Syncthing──▶ music server (Send Only: keeps the file,
+                                     lists it as "deleted on another device")
+agent: reads that list ─▶ Jellyfin playlists ─▶ rm on the server ─▶ dislike
+music server ──Syncthing──▶ phone B, laptop: file deleted
+```
+
+Set it up once:
+
+1. On the music server the Syncthing folder stays **Send Only**, so nothing a
+   device does reaches the library without the agent.
+2. On every device whose deletes should count, set the folder type to
+   **Send & Receive**. A Receive Only device never tells anyone about its
+   deletes, so nothing happens for it.
+3. In the agent's `monitor.env` set `LIKED_MUSIC_SYNCTHING_URL` (the server's
+   Syncthing address), `LIKED_MUSIC_SYNCTHING_API_KEY` (Actions > Settings >
+   API Key) and `LIKED_MUSIC_SYNCTHING_FOLDER` (the Folder ID, not the label).
+
+The agent checks on every sync and every `LIKED_MUSIC_SYNCTHING_CHECK_MINUTES`
+(default 10) in between. There is no Telegram question: deleting the file was
+your decision already.
+
+- Only songs the sync put in the library count. Anything else a device
+  deleted, added or changed (a `.lrc`, a playlist file, a photo) is ignored
+  and stays as it is on the server; Syncthing shows the folder as
+  "Out of Sync" there until you press **Override Changes**.
+- More than `LIKED_MUSIC_MAX_REMOVALS` songs deleted at once removes nothing
+  and is reported as the sync's error: that is a wiped phone folder far more
+  often than a decision.
+- The dislike is sent with the cookies of the browser the sync already reads
+  (`LIKED_MUSIC_BROWSER`), exported by yt-dlp into a private temporary folder
+  that is removed right after. If it fails (signed out, offline) the file is
+  gone anyway and the dislike is retried on every run
+  (`.dislike-pending.json`).
+- `LIKED_MUSIC_DISLIKE_DELETED=false` removes the files and leaves the rating
+  alone. The song then stays liked and is not downloaded again.
+- A deleted song that is still in a mirrored playlist is not downloaded again
+  (`.device-deleted.json`); liking it again later brings it back.
 
 Safety rails: only songs the sync downloaded *and* saw in Liked Music count,
 so songs that are in other playlists only are never touched. The first

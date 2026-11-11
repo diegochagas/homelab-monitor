@@ -134,7 +134,7 @@ def apply_removal_decisions(deps: ReconcileDeps, delete_ids: List[str], keep_ids
     pending = pending_removals(deps.folder)
     to_delete = [vid for vid in dict.fromkeys(delete_ids) if vid in pending]
     names = [pending[vid] for vid in to_delete]
-    if names and not _remove_everywhere(deps, names, outcome):
+    if names and not remove_everywhere(deps, names, outcome):
         return outcome
     forget_songs(deps.folder, to_delete)
     to_keep = [vid for vid in dict.fromkeys(keep_ids) if vid in pending and vid not in to_delete]
@@ -144,14 +144,17 @@ def apply_removal_decisions(deps: ReconcileDeps, delete_ids: List[str], keep_ids
     return outcome
 
 
-def _remove_everywhere(deps: ReconcileDeps, names: List[str], outcome: ReconcileOutcome) -> bool:
-    """Playlists first, then files; False (and nothing deleted) if a step fails."""
+def remove_everywhere(deps: ReconcileDeps, names: List[str], outcome: ReconcileOutcome) -> bool:
+    """Playlists first, then files; False (and nothing deleted) if a step fails.
+
+    Example: remove_everywhere(deps, ["A - B.opus"], outcome) -> True
+    """
     try:
         if deps.jellyfin is not None:
             deps.jellyfin.remove_files(names)
         deps.delete_files(names + [lrc_name(name) for name in names])  # rm -f: a missing .lrc is fine
     except Exception as error:  # noqa: BLE001 - the song stays queued, so a repeated decision retries
-        outcome.errors.append(f"removing {len(names)} unliked song(s) failed: {error}")
+        outcome.errors.append(f"removing {len(names)} song(s) failed: {error}")
         return False
     for name in names:
         staged = os.path.join(deps.folder, name)

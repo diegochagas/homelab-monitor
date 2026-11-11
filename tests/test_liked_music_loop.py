@@ -3,11 +3,15 @@
 import subprocess
 import tempfile
 import unittest
+from unittest import mock
 
+from homelab_monitor import liked_music_servers
 from homelab_monitor.liked_music import LikedMusicSettings, LikedSyncResult
 from homelab_monitor.liked_music_loop import MAX_QUICK_RETRIES, RETRY_MINUTES, LikedMusicLoop
 from homelab_monitor.liked_music_servers import UnlikeSettings
-from homelab_monitor.liked_music_state import INDEX_NAME, REMOVAL_PENDING_NAME, pending_removals, save_state
+from homelab_monitor.liked_music_state import (INDEX_NAME, REMOVAL_PENDING_NAME, load_state, pending_removals,
+                                               save_state)
+from homelab_monitor.syncthing_folder import SyncthingFolderSettings
 
 
 class FakeSsh:
@@ -84,6 +88,47 @@ class RetryDelayTest(unittest.TestCase):
     def test_clean_run_waits_the_full_interval(self) -> None:
         self.loop.next_delay(LikedSyncResult(0, error="offline"))
         self.assertEqual(self.loop.next_delay(LikedSyncResult(0)), 6 * 3600)
+
+
+class FakeSyncthingReport:
+    """Stands in for Syncthing's need list: these files were deleted on another device."""
+
+    def __init__(self, names):
+        self.names = names
+
+    def __call__(self, settings) -> list:
+        return list(self.names)
+
+
+class DeviceCheckTest(unittest.TestCase):
+    def setUp(self) -> None:
+        self.tmp = tempfile.TemporaryDirectory()
+        self.folder = self.tmp.name
+        save_state(self.folder, INDEX_NAME, {"gone": "A - Gone.opus", "kept": "B - Kept.opus"})
+        self.report = mock.patch.object(liked_music_servers, "remotely_deleted_files",
+                                        FakeSyncthingReport(["A - Gone.opus"]))
+        self.report.start()
+
+    def tearDown(self) -> None:
+        self.report.stop()
+        self.tmp.cleanup()
+
+    def loop_with_syncthing(self) -> LikedMusicLoop:
+        loop = make_loop(self.folder)
+        loop.settings.unlike = UnlikeSettings(syncthing=SyncthingFolderSettings("http://server:8384", "fake-key", "music"),
+                                              syncthing_check_minutes=10, dislike_deleted=False)
+        return loop
+
+    def test_check_between_syncs_deletes_the_song_on_the_server(self) -> None:
+        loop = self.loop_with_syncthing()
+        result = loop.check_devices()
+        self.assertEqual(result.device_deleted, ["A - Gone.opus"])
+        self.assertIn("/music/A - Gone.opus", loop.push_runner.commands[0][-1])
+        self.assertEqual(load_state(self.folder, INDEX_NAME, {}), {"kept": "B - Kept.opus"})
+
+    def test_checks_run_every_few_minutes_only_with_syncthing_configured(self) -> None:
+        self.assertEqual(self.loop_with_syncthing().device_check_seconds(), 600)
+        self.assertEqual(make_loop(self.folder).device_check_seconds(), float("inf"))
 
 
 if __name__ == "__main__":

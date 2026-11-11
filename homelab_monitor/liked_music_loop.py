@@ -5,6 +5,10 @@ thread hands over the owner's answers about queued unlikes (they arrive in the
 central bot's heartbeat reply) with submit_decisions, which wakes the thread so
 a confirmed delete happens within seconds instead of at the next sync.
 
+With Syncthing configured the thread also wakes every
+LIKED_MUSIC_SYNCTHING_CHECK_MINUTES to remove songs deleted on another device
+(check_device_deletes), so the other devices lose them within minutes.
+
 The central bot repeats a decision in every reply until the agent's snapshot no
 longer lists those songs, so a decision lost to a restart or a busy lock is
 simply applied on a later heartbeat.
@@ -17,7 +21,8 @@ import threading
 import time
 from typing import Callable, Dict, List, Optional
 
-from .liked_music import LikedMusicSettings, LikedSyncResult, apply_decisions, run_liked_sync
+from .liked_music import (LikedMusicSettings, LikedSyncResult, apply_decisions, check_device_deletes,
+                          run_liked_sync)
 from .liked_music_state import pending_removals
 
 log = logging.getLogger("liked_music")
@@ -44,6 +49,7 @@ class LikedMusicLoop:
         self._inbox_lock = threading.Lock()
         self._inbox: Dict[str, List[str]] = {"delete": [], "keep": []}
         self._quick_retries = 0
+        self._last_check_error: Optional[str] = None
 
     def start(self) -> threading.Thread:
         thread = threading.Thread(target=self._loop, name="liked-music", daemon=True)
@@ -51,13 +57,40 @@ class LikedMusicLoop:
         return thread
 
     def _loop(self) -> None:
-        next_sync = 0.0
+        next_sync = next_check = 0.0
         while True:
             if time.time() >= next_sync:
                 next_sync = time.time() + self.next_delay(self.run_once())
-            self._wake.wait(timeout=max(1.0, next_sync - time.time()))
+                next_check = time.time() + self.device_check_seconds()
+            elif time.time() >= next_check:
+                self.check_devices()
+                next_check = time.time() + self.device_check_seconds()
+            self._wake.wait(timeout=max(1.0, min(next_sync, next_check) - time.time()))
             self._wake.clear()
             self.apply_submitted()
+
+    def device_check_seconds(self) -> float:
+        """Seconds between device-delete checks; infinite without Syncthing settings.
+
+        Example: loop.device_check_seconds() -> 600.0
+        """
+        unlike = self.settings.unlike
+        if unlike.syncthing is None:
+            return float("inf")
+        return max(60.0, unlike.syncthing_check_minutes * 60)
+
+    def check_devices(self) -> LikedSyncResult:
+        """Remove songs deleted on another device now; the heartbeat reports them with the last sync."""
+        result = check_device_deletes(self.settings, self.runner, self.push_runner)
+        if result.error != self._last_check_error:  # an unreachable server is logged once, not every check
+            self._last_check_error = result.error
+            log.warning("device deletes: %s", result.error or "working again")
+        if result.device_deleted:
+            log.info("deleted on a device, removed everywhere: %d song(s), %d disliked",
+                     len(result.device_deleted), result.disliked)
+            if self.last_result:
+                self.last_result.device_deleted = result.device_deleted + self.last_result.device_deleted
+        return result
 
     def run_once(self) -> LikedSyncResult:
         result = run_liked_sync(self.settings, self.runner, self.push_runner)
@@ -70,9 +103,9 @@ class LikedMusicLoop:
             log.warning("liked music sync failed: %s", result.error)
         else:
             log.info("liked music sync: %d new, %d uploaded, %d mirrored, %d playlist file(s) written, %d lyrics added, "
-                     "%d unliked waiting for confirmation", len(result.new_titles), result.pushed,
-                     sum(result.mirrored.values()), len(result.playlists_written), result.lyrics_added,
-                     len(result.queued))
+                     "%d unliked waiting for confirmation, %d deleted on a device", len(result.new_titles),
+                     result.pushed, sum(result.mirrored.values()), len(result.playlists_written),
+                     result.lyrics_added, len(result.queued), len(result.device_deleted))
         self.apply_submitted()
         return result
 
