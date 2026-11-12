@@ -125,9 +125,7 @@ class AlertEngine:
                 continue
             icon, text = backup_line(stage, self.cfg)
             failing = icon not in (GREEN, "🟡")  # stale, failed or unavailable
-            hint = ""
-            if stage_key == "stage1":
-                hint = "\n\nCheck that the server's backup job is still scheduled (e.g. <code>sudo crontab -l</code>)."
+            hint = backup_alert_hint(stage_key, stage)
             self.evaluate(
                 f"{node_id}:backup:{stage_key}", node_id,
                 failing,
@@ -181,3 +179,17 @@ class AlertEngine:
 
 def _stamp(timestamp):
     return time.strftime("%Y-%m-%d %H:%M", time.localtime(timestamp))
+
+
+def backup_alert_hint(stage_key: str, stage: dict) -> str:
+    """What to do about a failing backup stage, appended to its alert.
+
+    >>> backup_alert_hint("stage2", {})
+    ''
+    """
+    if stage_key != "stage1":
+        return ""
+    if stage.get("status") == "paused":
+        return ("\n\nThe schedule is fine: the backup refuses to run while the apps are on the backup drive."
+                " It resumes after the failback (homelab-backup's <code>failback.sh</code>).")
+    return "\n\nCheck that the server's backup job is still scheduled (e.g. <code>sudo crontab -l</code>)."

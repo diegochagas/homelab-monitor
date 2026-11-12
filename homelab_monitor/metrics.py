@@ -12,6 +12,7 @@ import struct
 import time
 
 from . import dockerapi
+from .backup_failover import mark_paused_by_failover
 
 _CLK_TCK = os.sysconf("SC_CLK_TCK") if hasattr(os, "sysconf") else 100
 _PAGE_SIZE = os.sysconf("SC_PAGE_SIZE") if hasattr(os, "sysconf") else 4096
@@ -503,7 +504,9 @@ def snapshot(cfg):
         "backup": {},
     }
     if cfg.server_backup_log:
-        data["backup"]["stage1"] = server_backup_status(cfg.host_path(cfg.server_backup_log))
+        stage1 = server_backup_status(cfg.host_path(cfg.server_backup_log))
+        flag = cfg.host_path(cfg.server_failover_flag) if cfg.server_failover_flag else ""
+        data["backup"]["stage1"] = mark_paused_by_failover(stage1, flag)
     if cfg.backup_log_dir:
         data["backup"]["stage2"] = local_backup_status(cfg.host_path(cfg.backup_log_dir))
     return data

@@ -79,6 +79,9 @@ class Config:
 
     # Backups
     server_backup_log: str = field(default_factory=lambda: _env("SERVER_BACKUP_LOG"))
+    # homelab-backup's STATE_DIR/failover.active: while it exists the server
+    # backup is reported as paused instead of failed/stale (empty = not checked).
+    server_failover_flag: str = field(default_factory=lambda: _env("SERVER_FAILOVER_FLAG"))
     backup_log_dir: str = field(default_factory=lambda: _env("BACKUP_LOG_DIR"))
     backup_max_age_hours: int = field(default_factory=lambda: _int("BACKUP_MAX_AGE_HOURS", 48))
 
