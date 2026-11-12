@@ -232,6 +232,7 @@ remain gitignored and must not be treated as non-secret path configuration.
 | `REGISTRATION_KEY` | both | Shared secret an agent must present on its first heartbeat |
 | `LISTEN_HOST`, `LISTEN_PORT` | central | Agent endpoint (default `0.0.0.0:8787`) |
 | `SERVER_BACKUP_LOG` | central | Server-side backup log for `/backups` and stale alerts |
+| `SERVER_FAILOVER_FLAG` | central | homelab-backup's `failover.active` file; while it exists the server backup shows as paused by the failover |
 | `DISK_IGNORE` | both | Mounts never alerted on (e.g. a read-only root that is always full) |
 | `BACKUP_ONLY_NODES` | central | Node names that only get backup alerts (no offline/CPU/memory/disk/temp/container checks) — for intermittently-online machines like a laptop |
 | `CENTRAL_URL`, `AGENT_ID`, `AGENT_TOKEN`, `HEARTBEAT_INTERVAL` | agent | Where and how to report |
@@ -271,6 +272,11 @@ From them `/backups` and `/health` show the last run, its result and the
 per-folder summary, and the alert loop raises SERVER BACKUP / OFFSITE BACKUP
 when a run failed or the last success is older than `BACKUP_MAX_AGE_HOURS`.
 Dry runs are ignored.
+
+With `SERVER_FAILOVER_FLAG` set, a homelab-backup failover is reported for what
+it is: SERVER BACKUP says "PAUSED — failover active since …" (still an alert,
+since no nightly backup runs until the failback) instead of a misleading
+"never finished, check the scheduler" read from the backup drive's copy of the log.
 
 The "backup finished" messages themselves are sent by homelab-backup's own
 `notify.sh`, independently of this bot, so they arrive even when the monitor

@@ -209,6 +209,9 @@ def backup_line(stage, cfg):
         return GREY, f"unavailable ({e(stage.get('error', '?'))})"
     age_hours = (time.time() - stage.get("mtime", 0)) / 3600
     when = stage.get("finished") or stage.get("started") or "?"
+    if stage["status"] == "paused":
+        # Red on purpose: no nightly backup runs until the failback.
+        return RED, f"PAUSED — {e(stage.get('detail') or 'failover active')}"
     if stage["status"] == "running":
         return YELLOW, f"running since {e(stage.get('started') or '?')}"
     if stage["status"] == "failed":
