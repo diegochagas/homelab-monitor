@@ -4,7 +4,7 @@ set -euo pipefail
 cd "$(dirname "$0")/.."
 python3 -m compileall -q homelab_monitor tests
 python3 -m unittest discover -s tests
-shellcheck install-agent.sh install-central.sh scripts/check scripts/immich-* .githooks/pre-push
+shellcheck install-agent.sh install-central.sh scripts/check scripts/immich-* scripts/install-immich-embed-timer .githooks/pre-push
 # Review page's coordinate parser (browser JS); skipped where node isn't installed.
 if command -v node >/dev/null; then node --test tests/*.test.mjs; fi
 # Report only: the repo predates the clean-code rules (metrics.py, formatting.py).

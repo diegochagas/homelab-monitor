@@ -45,7 +45,7 @@ failed backups.
 | `homelab_monitor.bot` | Central server, as a Docker container | Telegram commands, alerts, endpoint for agents |
 | `homelab_monitor.agent` | Any Linux machine, systemd user service | Pushes metrics (and the last backup result) to the central |
 | `homelab_monitor.immich_check` | Inside the central, optional | Once a day: photos with no location or a date that disagrees with the file name, and Immich duplicate groups; Telegram message when something is new, `/immich` for totals |
-| `scripts/immich-review` (+ `immich-classify`, `immich-embed`) | A laptop, run by hand | Review page to fix date and location photo by photo, AI home/gym guesses, then write the values into the files on the server |
+| `scripts/immich-review` (+ `immich-classify`, `immich-embed`, `immich-embed-auto`) | A laptop, by hand + a daily timer | Review page to fix date and location photo by photo, AI home/gym guesses, then write the values into the files on the server |
 | `homelab_monitor.liked_music` | Inside the agent, optional | Downloads songs newly liked on YouTube Music (and other playlists) into a folder, writes `.m3u8` playlist files next to them, keeps a Jellyfin playlist in step, (opt-in) deletes unliked songs and (opt-in) removes everywhere and dislikes a song you deleted on one device |
 
 The central runs as a container on purpose: appliance-style distros (ZimaOS,
@@ -354,6 +354,23 @@ scripts/immich-embed push-apply  # replace the server files (sudo rsync)
 A file whose rewrite loses data (smaller output) is never pushed. Rewritten
 files no longer match the checksum Immich stored, so a re-upload of the same
 original isn't caught as a duplicate.
+
+**Daily sync of edits (laptop timer).** Every date or location edit, in Immich's
+web UI or on the review page, makes Immich rewrite the photo's XMP sidecar
+(`<photo>.<ext>.xmp`). `scripts/immich-embed-auto` runs the steps above on its
+own for the sidecars written since its last run: it pushes only verified files,
+sends a Telegram summary when something changed, leaves failed photos for the
+next run, and deletes run folders older than 30 days. More than 300 changed
+sidecars at once (Immich rewrote them all) stops the run and asks for the
+manual steps. `--dry-run` lists what it would do.
+
+```bash
+scripts/install-immich-embed-timer   # systemd user timer, daily 12:00, catches up after the laptop was off
+scripts/immich-embed-auto --dry-run
+```
+
+Its state is `embedded-sidecars.json` in `IMMICH_REVIEW_DIR`. The first run only
+syncs edits made from then on; set its `baseline` earlier to include older ones.
 
 ## Liked music sync
 
