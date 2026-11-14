@@ -240,9 +240,19 @@ function wire() {
   document.addEventListener('keydown', onKey);
 }
 
+/** Header link to Immich's own duplicate review (side by side, keep / trash). */
+async function showDuplicates() {
+  const found = await api('/api/duplicates').catch(() => null);
+  if (!found || !found.groups) return;
+  $('duplicates').textContent = `${found.groups} duplicate groups →`;
+  $('duplicates').href = found.url;
+  $('duplicates').hidden = false;
+}
+
 async function start() {
   wire();
   renderPresets(await api('/api/presets'));
+  showDuplicates();
   state.cards = await api('/api/queue');
   render();
 }

@@ -10,7 +10,7 @@ Telegram message when anything is new since the last message. Seen ids live in
 import json
 import logging
 from dataclasses import dataclass, field
-from datetime import datetime, timedelta
+from datetime import datetime
 from pathlib import Path
 from typing import Callable, Optional
 
@@ -31,8 +31,7 @@ class ImmichFindings:
 
 def find_problems(client: ImmichClient, settings: ImmichSettings, now: datetime) -> ImmichFindings:
     """Everything that needs a look right now (read-only calls)."""
-    since = (now - timedelta(days=settings.review_days + 1)).isoformat(timespec="seconds")
-    cards = build_queue(client.search_assets(since), settings.tz)
+    cards = build_queue(client.search_assets(settings.window_start(now)), settings.tz)
     review = {c["id"]: f"{c['name']} — {', '.join(c['reasons'])}" for c in cards}
     groups = client.duplicate_groups()
     duplicates = {g["duplicateId"]: ", ".join(a["originalFileName"] for a in g["assets"]) for g in groups}

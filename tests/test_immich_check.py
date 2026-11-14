@@ -93,7 +93,10 @@ class LoopAndSettingsTest(unittest.TestCase):
     def test_settings_defaults(self):
         settings = immich_settings(settings_env())
         self.assertEqual((settings.url, settings.web_url, settings.check_hour, settings.review_days),
-                         ("http://immich:2283", "http://immich:2283", 9, 365))
+                         ("http://immich:2283", "http://immich:2283", 9, 0))
+        self.assertEqual(settings.window_start(MORNING), "1800-01-01T00:00:00Z")
+        last_week = immich_settings(settings_env(IMMICH_REVIEW_DAYS="7")).window_start(MORNING)
+        self.assertEqual(last_week, "2026-11-06T10:00:00-03:00")
         with self.assertRaisesRegex(ValueError, "IMMICH_REVIEW_DIR"):
             settings.review_dir
 

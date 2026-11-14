@@ -21,7 +21,8 @@ def open_desk(settings: ImmichSettings) -> ReviewDesk:
     folder = settings.review_dir
     folder.mkdir(parents=True, exist_ok=True)
     client = ImmichClient(settings.url, settings.api_key)
-    review = ReviewSettings(settings.tz, settings.review_days, load_presets(folder / "places.json"))
+    presets = load_presets(folder / "places.json")
+    review = ReviewSettings(settings.tz, settings.review_days, presets, settings.web_url)
     stores = (DecisionStore(folder / "decisions.json"), DecisionStore(folder / "classifications.json"))
     return ReviewDesk(client, stores[0], stores[1], review)
 

@@ -25,6 +25,8 @@ class ReviewRequests(BaseHTTPRequestHandler):
             self._image(*image.groups())
         elif route.path == "/api/queue":
             self._json(self.desk.queue())
+        elif route.path == "/api/duplicates":
+            self._json(self.desk.duplicates())
         elif route.path == "/api/presets":
             self._json(self.desk.presets)
         elif route.path == "/api/places":

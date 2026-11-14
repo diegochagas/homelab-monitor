@@ -314,9 +314,12 @@ Optional, off until `IMMICH_URL` is set (see the Immich block in
 `monitor.env.example`).
 
 **Daily check (central).** After `IMMICH_CHECK_HOUR` the bot asks Immich for
-the photos taken in the last `IMMICH_REVIEW_DAYS` days that have
-no GPS position, or whose date is on another day than the date in the file name
-(`IMG-20261113-WA0002.jpg`, `20260715_150437.jpg`), plus Immich's duplicate
+every photo (or only those taken in the last `IMMICH_REVIEW_DAYS` days) that
+has no GPS position, a capture date more than a day away from the date in the
+file name (`20260715_150437.jpg`, `1987-03-25 Casamento (1).jpg`; a WhatsApp
+name is the day it was *received*, so only a later capture date counts), or no
+capture date at all (no camera data, no date in the name: Immich fell back to
+the file's own time), plus Immich's duplicate
 groups (Utilities → Review duplicates, filled by its duplicate detection job).
 When something is new since the last message it sends one Telegram message
 listing it, with a link to Immich's duplicate review. Announced ids are kept in
@@ -327,6 +330,7 @@ listing it, with a link to Immich's duplicate review. Announced ids are kept in
 
 - the suggested date (from the file name),
 - the place of the nearest-in-time photo that has GPS (within 6 hours),
+- a link to Immich's duplicate review with the number of groups,
 - an AI guess among your favourite places (`places.json` in `IMMICH_REVIEW_DIR`,
   filled by `scripts/immich-classify` with a local Ollama vision model),
 - place search, `latitude, longitude` paste, and a map.

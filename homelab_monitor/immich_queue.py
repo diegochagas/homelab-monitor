@@ -1,8 +1,8 @@
-"""Build the review queue: photos without a location or with a date that disagrees with the name."""
+"""Build the review queue: photos with no location, a date that disagrees with the file name, or no capture date."""
 
 from datetime import UTC, datetime, timedelta, tzinfo
 
-from .immich_suggest import Geo, date_from_filename, nearest_geotagged, suggest_date
+from .immich_suggest import Geo, GeoIndex, date_conflicts, date_from_filename, suggest_date
 
 LOCAL_FORMAT = "%Y-%m-%dT%H:%M:%S"
 
@@ -41,13 +41,23 @@ def reasons_for(asset: dict, taken: datetime, tz: tzinfo) -> list[str]:
     reasons = []
     if not has_gps(asset):
         reasons.append("no location")
-    stamp, _ = date_from_filename(asset["originalFileName"], tz)
-    if stamp is not None and stamp.date() != taken.date():
+    if date_conflicts(taken, asset["originalFileName"]):
         reasons.append("date differs from file name")
+    elif date_unknown(asset, tz):
+        reasons.append("no capture date (Immich used the file's time)")
     return reasons
 
 
-def build_item(asset: dict, pool: list[Geo], tz: tzinfo) -> dict | None:
+def date_unknown(asset: dict, tz: tzinfo) -> bool:
+    """No camera data, no date in the name, and Immich's date is just the file's own time."""
+    exif = asset["exifInfo"]
+    if exif.get("make") or date_from_filename(asset["originalFileName"], tz)[0] is not None:
+        return False
+    file_times = {(asset.get(key) or "")[:19] for key in ("fileModifiedAt", "fileCreatedAt")}
+    return (exif.get("dateTimeOriginal") or "")[:19] in file_times
+
+
+def build_item(asset: dict, pool: GeoIndex, tz: tzinfo) -> dict | None:
     """One review card, or None when the photo already has date and location."""
     taken = parse_taken(asset, tz)
     reasons = reasons_for(asset, taken, tz)
@@ -74,9 +84,8 @@ def _current_location(asset: dict) -> dict | None:
     return {"lat": exif["latitude"], "lon": exif["longitude"], "label": place_label(exif)}
 
 
-def _suggest_location(asset: dict, when: datetime, pool: list[Geo]) -> dict | None:
-    others = [geo for geo in pool if geo.asset_id != asset["id"]]
-    found = nearest_geotagged(when, others)
+def _suggest_location(asset: dict, when: datetime, pool: GeoIndex) -> dict | None:
+    found = pool.nearest(when, skip_id=asset["id"])
     if found is None:
         return None
     geo, gap = found
@@ -91,7 +100,7 @@ def _suggest_location(asset: dict, when: datetime, pool: list[Geo]) -> dict | No
 
 def build_queue(assets: list[dict], tz: tzinfo) -> list[dict]:
     """Review cards for every photo that needs a look, in capture order."""
-    pool = geotagged_pool(assets)
+    pool = GeoIndex(geotagged_pool(assets))
     cards = (build_item(asset, pool, tz) for asset in assets if _dated(asset))
     return [card for card in cards if card is not None]
 

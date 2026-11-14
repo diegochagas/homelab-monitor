@@ -16,6 +16,7 @@ legend { padding:0 6px; color:var(--muted); }
 p { margin:4px 0; }
 .hint { color:var(--muted); font-size:13px; }
 .reasons { color:var(--bad); font-weight:600; }
+header a { color:var(--accent); }
 .error { color:var(--bad); min-height:1.4em; }
 input, select, button { font:inherit; color:inherit; background:var(--bg); border:1px solid var(--line); border-radius:6px; padding:6px 8px; }
 input { width:100%; }

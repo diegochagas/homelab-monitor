@@ -7,7 +7,7 @@ originals as backup; photos already pushed by an earlier run are left out of a n
 
 import json
 import sys
-from datetime import datetime, timedelta
+from datetime import datetime
 from pathlib import Path
 
 from .config import load_env_file
@@ -35,8 +35,8 @@ def embed_config(settings: ImmichSettings, new_run: bool) -> EmbedConfig:
 def build_plan(settings: ImmichSettings, embed: EmbedConfig) -> list[EmbedItem]:
     """Reviewed photos whose date or location changed and that no earlier run pushed."""
     client = ImmichClient(settings.url, settings.api_key)
-    since = datetime.now(settings.tz) - timedelta(days=settings.review_days + 1)
-    assets = {a["id"]: a for a in client.search_assets(since.isoformat(timespec="seconds"))}
+    since = settings.window_start(datetime.now(settings.tz))
+    assets = {a["id"]: a for a in client.search_assets(since)}
     decisions = json.loads((settings.review_dir / "decisions.json").read_text())
     done = set(load_embedded(settings.review_dir))
     pending = {key: value for key, value in decisions.items() if key not in done}

@@ -1,9 +1,10 @@
 """What the review page does: list the photos to review, apply or skip a decision."""
 
 from dataclasses import dataclass
-from datetime import datetime, timedelta, tzinfo
+from datetime import datetime, tzinfo
 
 from .immich_review_store import DecisionStore
+from .immich_settings import window_start
 from .immich_client import ImmichClient
 from .immich_queue import LOCAL_FORMAT, build_queue
 
@@ -13,8 +14,9 @@ LOCAL_FORMAT_NO_SECONDS = "%Y-%m-%dT%H:%M"
 @dataclass(frozen=True)
 class ReviewSettings:
     tz: tzinfo
-    days: int
+    days: int  # 0 = the whole library
     presets: list[dict]
+    web_url: str = ""  # Immich's own pages (duplicate review)
 
 
 class ReviewDesk:
@@ -31,11 +33,11 @@ class ReviewDesk:
         self.tz = settings.tz
         self.days = settings.days
         self.presets = settings.presets
+        self.web_url = settings.web_url
 
     def queue(self) -> list[dict]:
         """Cards still needing review plus the saved decision for each."""
-        since = datetime.now(self.tz) - timedelta(days=self.days + 1)
-        assets = self.client.search_assets(since.isoformat(timespec="seconds"))
+        assets = self.client.search_assets(window_start(self.days, datetime.now(self.tz)))
         decisions = self.store.load()
         guesses = self.classifications.load()
         cards = build_queue(assets, self.tz)
@@ -55,6 +57,11 @@ class ReviewDesk:
         decision = {"action": "applied", "fields": fields}
         self.store.record(asset_id, decision)
         return decision
+
+    def duplicates(self) -> dict:
+        """How many duplicate groups Immich has and where to review them."""
+        groups = self.client.duplicate_groups()
+        return {"groups": len(groups), "url": f"{self.web_url}/utilities/duplicates"}
 
     def skip(self, asset_id: str) -> dict:
         decision = {"action": "skipped"}

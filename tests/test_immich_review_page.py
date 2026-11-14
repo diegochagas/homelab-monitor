@@ -21,11 +21,11 @@ class ReviewPageTest(unittest.TestCase):
     def setUp(self):
         self.folder = tempfile.TemporaryDirectory()
         root = Path(self.folder.name)
-        self.fake = FakeImmich([make_asset(uuid(1), "IMG-20260715-WA0001.jpg", "2026-07-15T18:30:00Z")])
+        self.fake = FakeImmich([make_asset(uuid(1), "IMG-20260715-WA0001.jpg", "2026-07-15T18:30:00Z")], [{"duplicateId": "d", "assets": []}])
         self.store = DecisionStore(root / "decisions.json")
         guesses = DecisionStore(root / "classifications.json")
         guesses.record(uuid(1), {"place": "Gym", "reason": "weights"})
-        desk = ReviewDesk(self.fake, self.store, guesses, ReviewSettings(TZ, 365, [GYM]))
+        desk = ReviewDesk(self.fake, self.store, guesses, ReviewSettings(TZ, 365, [GYM], "http://immich"))
         self.server = ThreadingHTTPServer(("127.0.0.1", 0), bind_requests(desk))
         threading.Thread(target=self.server.serve_forever, daemon=True).start()
         self.url = f"http://127.0.0.1:{self.server.server_address[1]}"
@@ -93,6 +93,7 @@ class ReviewPageTest(unittest.TestCase):
             self.assertEqual(response.read(), b"JPEGBYTES")
         self.assertEqual(self.get_json("/api/places?q=Lapa")[0]["name"], "Lapa")
         self.assertEqual(self.get_json("/api/presets"), [GYM])
+        self.assertEqual(self.get_json("/api/duplicates"), {"groups": 1, "url": "http://immich/utilities/duplicates"})
         with urlopen(self.url + "/") as response:
             self.assertIn(b"Immich Review", response.read())
 
