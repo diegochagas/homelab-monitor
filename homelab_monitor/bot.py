@@ -14,6 +14,7 @@ import urllib.error
 from . import VERSION, metrics
 from .alerts import AlertEngine
 from .commands import COMMANDS, Commands
+from .immich_loop import start_immich_watch
 from .config import Config, load_env_file
 from .state import State
 from .telegram import Telegram
@@ -196,6 +197,7 @@ class Bot:
         log.info("agent endpoint listening on %s:%s", self.cfg.listen_host, self.cfg.listen_port)
 
         threading.Thread(target=self.alert_loop, name="alerts", daemon=True).start()
+        self.commands.immich = start_immich_watch(self.cfg.data_dir, self.notify)
         self.notify(f"🤖 <b>Homelab Monitor v{e(VERSION)}</b> started on <code>{e(self.cfg.node_name)}</code>")
         self.poll_forever()
 

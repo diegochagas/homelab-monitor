@@ -56,4 +56,12 @@ Formatter: none enforced yet (ruff isn't installed on the machines); keep PEP 8.
   sync indexed, playlists first, and Syncthing is only ever read, never written);
   a failed YouTube Music dislike is queued (.dislike-pending.json) and retried each run;
   graceful "unavailable" instead of a crash when a sensor, socket or log is missing.
+  Immich: the daily check thread logs an unreachable Immich and looks again on its
+  next 15-minute tick (no retries inside a tick); immich-classify skips a photo whose
+  Ollama/Immich call fails and leaves it unrecorded so the next run retries it;
+  immich-embed never writes the server's originals before `verify` passes, pushes
+  only verified files, keeps the untouched originals in the run folder, and only
+  replaces files through the server's passwordless `sudo rsync`.
+- The Immich modules (immich_*.py) use Python 3.11+ (datetime.UTC, zoneinfo);
+  the container and the laptop run 3.12.
 - README has a "How it works" architecture diagram; update it when the shape changes.

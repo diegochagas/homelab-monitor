@@ -1,6 +1,7 @@
 """Telegram command handlers."""
 
 import logging
+from datetime import datetime
 
 from . import VERSION, formatting, metrics
 from .telegram import escape as e
@@ -24,6 +25,7 @@ COMMANDS = [
     ("remove", "Unregister a server"),
     ("forget", "Stop tracking a removed container"),
     ("integrate", "How to add a server"),
+    ("immich", "Photos to review and duplicates in Immich"),
     ("unliked", "Unliked songs waiting for a decision"),
     ("unliked_delete", "Delete the waiting unliked songs [server]"),
     ("unliked_keep", "Keep the waiting unliked songs [server]"),
@@ -41,6 +43,7 @@ class Commands:
         self.fresh_central_snapshot = fresh_central_snapshot  # callable() -> snapshot
         self.sent_messages = []  # (chat_id, message_id) for /clear
         self.unlikes = None  # UnlikeConfirmations, set by the bot
+        self.immich = None  # ImmichWatch, set by the bot when IMMICH_URL is configured
 
     # ---------------------------------------------------------- helpers
 
@@ -190,6 +193,11 @@ class Commands:
             "",
             "The agent registers itself on its first heartbeat and shows up in /servers.",
         ])
+
+    def cmd_immich(self, _args):
+        if self.immich is None:
+            return "🖼️ Immich check is off: set IMMICH_URL, IMMICH_API_KEY and IMMICH_TIMEZONE in monitor.env"
+        return self.immich.status(datetime.now(self.immich.settings.tz))
 
     def cmd_unliked(self, _args):
         return self.unlikes.status() if self.unlikes else None

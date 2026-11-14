@@ -28,6 +28,7 @@ failed backups.
 │   ├─ Telegram bot (long polling)  │◀───────┤   heartbeat + metrics every    │
 │   ├─ HTTP endpoint :8787          │  LAN / │   60 s (POST /api/v1/heartbeat)│
 │   ├─ alert loop every 60 s        │Tailscale                                │
+│   ├─ daily Immich check (opt.)    │        │                                │
 │   └─ SQLite state                 │        │   optional: every 6 h download │
 │                                   │        │   new YouTube Music likes      │
 │                                   │        │   (yt-dlp → music folder)      │
@@ -43,6 +44,8 @@ failed backups.
 | ----- | ------- | ------------ |
 | `homelab_monitor.bot` | Central server, as a Docker container | Telegram commands, alerts, endpoint for agents |
 | `homelab_monitor.agent` | Any Linux machine, systemd user service | Pushes metrics (and the last backup result) to the central |
+| `homelab_monitor.immich_check` | Inside the central, optional | Once a day: photos with no location or a date that disagrees with the file name, and Immich duplicate groups; Telegram message when something is new, `/immich` for totals |
+| `scripts/immich-review` (+ `immich-classify`, `immich-embed`) | A laptop, run by hand | Review page to fix date and location photo by photo, AI home/gym guesses, then write the values into the files on the server |
 | `homelab_monitor.liked_music` | Inside the agent, optional | Downloads songs newly liked on YouTube Music (and other playlists) into a folder, writes `.m3u8` playlist files next to them, keeps a Jellyfin playlist in step, (opt-in) deletes unliked songs and (opt-in) removes everywhere and dislikes a song you deleted on one device |
 
 The central runs as a container on purpose: appliance-style distros (ZimaOS,
@@ -304,6 +307,53 @@ is down.
   commit it (it is gitignored).
 
 ---
+
+## Immich photos
+
+Optional, off until `IMMICH_URL` is set (see the Immich block in
+`monitor.env.example`).
+
+**Daily check (central).** After `IMMICH_CHECK_HOUR` the bot asks Immich for
+every photo (or only those taken in the last `IMMICH_REVIEW_DAYS` days) that
+has no GPS position, a capture date more than a day away from the date in the
+file name (`20260715_150437.jpg`, `1987-03-25 Casamento (1).jpg`; a WhatsApp
+name is the day it was *received*, so only a later capture date counts), or no
+capture date at all (no camera data, no date in the name: Immich fell back to
+the file's own time), plus Immich's duplicate
+groups (Utilities → Review duplicates, filled by its duplicate detection job).
+When something is new since the last message it sends one Telegram message
+listing it, with a link to Immich's duplicate review. Announced ids are kept in
+`<DATA_DIR>/immich-check.json`. `/immich` shows the current totals.
+
+**Review page (laptop).** `scripts/immich-review` serves a page on
+`127.0.0.1:IMMICH_REVIEW_PORT` that shows each photo with:
+
+- the suggested date (from the file name),
+- the place of the nearest-in-time photo that has GPS (within 6 hours),
+- a link to Immich's duplicate review with the number of groups,
+- an AI guess among your favourite places (`places.json` in `IMMICH_REVIEW_DIR`,
+  filled by `scripts/immich-classify` with a local Ollama vision model),
+- place search, `latitude, longitude` paste, and a map.
+
+Confirm writes only the changed fields to Immich (`PUT /api/assets`); every
+decision is kept in `decisions.json`, so the page resumes where you stopped.
+It listens on localhost only because it can write to your library.
+
+**Writing into the files (laptop → server).** Immich keeps edited values in its
+database. `scripts/immich-embed` puts them into the files themselves:
+
+```bash
+scripts/immich-embed plan        # new run folder, photos not pushed before
+scripts/immich-embed stage       # copy the originals (backup) + editable twins
+scripts/immich-embed write       # exiftool on the twins only
+scripts/immich-embed verify      # read back, size/duration checks
+scripts/immich-embed push        # rsync dry run
+scripts/immich-embed push-apply  # replace the server files (sudo rsync)
+```
+
+A file whose rewrite loses data (smaller output) is never pushed. Rewritten
+files no longer match the checksum Immich stored, so a re-upload of the same
+original isn't caught as a duplicate.
 
 ## Liked music sync
 
