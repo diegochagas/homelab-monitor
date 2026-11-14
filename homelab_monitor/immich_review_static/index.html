@@ -1,0 +1,67 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Immich Review</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<header>
+  <h1>Immich Review</h1>
+  <span id="progress"></span>
+  <select id="filter" aria-label="Filter">
+    <option value="pending">Pending</option>
+    <option value="applied">Confirmed</option>
+    <option value="skipped">Skipped</option>
+    <option value="all">All</option>
+  </select>
+</header>
+<main id="card" hidden>
+  <section class="photo"><img id="photo" alt="Photo under review"></section>
+  <section class="panel">
+    <h2 id="name"></h2>
+    <p id="reasons" class="reasons"></p>
+    <fieldset>
+      <legend>Date and time (local)</legend>
+      <p id="date-current"></p>
+      <p id="date-source" class="hint"></p>
+      <input id="taken" type="datetime-local" step="1">
+    </fieldset>
+    <fieldset>
+      <legend>Location</legend>
+      <p id="loc-current"></p>
+      <div id="ai" class="ai" hidden>
+        <p id="ai-text"></p>
+        <button id="use-ai" type="button"></button>
+      </div>
+      <div id="neighbor" class="neighbor" hidden>
+        <img id="neighbor-img" alt="Nearby photo with a location">
+        <div><p id="neighbor-text"></p>
+        <button id="use-neighbor" type="button">Use this place</button></div>
+      </div>
+      <div id="presets" class="row presets"></div>
+      <div class="row">
+        <input id="place-q" placeholder="Search a place, or paste: latitude, longitude">
+        <button id="place-go" type="button">Search</button>
+      </div>
+      <ul id="places"></ul>
+      <div class="row">
+        <input id="lat" placeholder="Latitude" inputmode="decimal">
+        <input id="lon" placeholder="Longitude" inputmode="decimal">
+      </div>
+      <iframe id="map" title="Map" loading="lazy"></iframe>
+    </fieldset>
+    <p id="error" class="error" role="alert"></p>
+    <nav class="actions">
+      <button id="prev" type="button">&larr; Back</button>
+      <button id="skip" type="button">Skip (S)</button>
+      <button id="confirm" type="button" class="primary">Confirm &amp; next (Enter)</button>
+    </nav>
+  </section>
+</main>
+<p id="empty" hidden>Nothing to review with this filter.</p>
+<script src="coords.js"></script>
+<script src="app.js"></script>
+</body>
+</html>

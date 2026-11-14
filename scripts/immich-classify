@@ -1,0 +1,5 @@
+#!/usr/bin/env bash
+# Laptop tool: python3 -m homelab_monitor.immich_classify with this repo's monitor.env.
+set -euo pipefail
+cd "$(dirname "$0")/.."
+exec python3 -m homelab_monitor.immich_classify "$@" monitor.env
