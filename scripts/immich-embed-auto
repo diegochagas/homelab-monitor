@@ -1,0 +1,5 @@
+#!/usr/bin/env bash
+# Laptop tool (daily timer): copy Immich date/location edits into the originals on the server.
+set -euo pipefail
+cd "$(dirname "$0")/.."
+exec python3 -m homelab_monitor.immich_embed_auto "$@" monitor.env

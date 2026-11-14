@@ -61,7 +61,9 @@ Formatter: none enforced yet (ruff isn't installed on the machines); keep PEP 8.
   Ollama/Immich call fails and leaves it unrecorded so the next run retries it;
   immich-embed never writes the server's originals before `verify` passes, pushes
   only verified files, keeps the untouched originals in the run folder, and only
-  replaces files through the server's passwordless `sudo rsync`.
+  replaces files through the server's passwordless `sudo rsync`; immich-embed-auto
+  (daily laptop timer) does the same unattended, keeps failed photos for the next
+  run, stops above MAX_FILES changed sidecars, and deletes run folders after KEEP_DAYS.
 - The Immich modules (immich_*.py) use Python 3.11+ (datetime.UTC, zoneinfo);
   the container and the laptop run 3.12.
 - README has a "How it works" architecture diagram; update it when the shape changes.

@@ -1,0 +1,31 @@
+#!/usr/bin/env bash
+# Install (or refresh) the laptop's systemd user timer that runs scripts/immich-embed-auto daily.
+# Persistent=true: a day the laptop was off is caught up at the next boot.
+set -euo pipefail
+repo="$(cd "$(dirname "$0")/.." && pwd)"
+units="${XDG_CONFIG_HOME:-$HOME/.config}/systemd/user"
+mkdir -p "$units"
+cat > "$units/immich-embed-auto.service" <<UNIT
+[Unit]
+Description=Copy Immich date/location edits into the photo files on the server
+After=network-online.target
+
+[Service]
+Type=oneshot
+ExecStart=$repo/scripts/immich-embed-auto
+UNIT
+cat > "$units/immich-embed-auto.timer" <<UNIT
+[Unit]
+Description=Daily Immich metadata sync
+
+[Timer]
+OnCalendar=*-*-* 12:00
+Persistent=true
+RandomizedDelaySec=10min
+
+[Install]
+WantedBy=timers.target
+UNIT
+systemctl --user daemon-reload
+systemctl --user enable --now immich-embed-auto.timer
+systemctl --user list-timers immich-embed-auto.timer --no-pager
