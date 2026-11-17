@@ -136,7 +136,7 @@ Checks run every `CHECK_INTERVAL` seconds for every machine:
 
 A problem must be seen `ALERT_CONFIRMATIONS` times in a row (default 2)
 before an alert is sent. While it persists it is repeated at most every
-`ALERT_REPEAT_SECONDS` (default 1 h). When it clears, a 🟢 RECOVERED message
+`ALERT_REPEAT_SECONDS` (default 24 h, so a down container pings once a day). When it clears, a 🟢 RECOVERED message
 follows.
 
 Containers are remembered once seen. If you remove one on purpose, answer

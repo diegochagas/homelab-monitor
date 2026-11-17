@@ -65,7 +65,7 @@ class Config:
 
     # Monitoring
     check_interval: int = field(default_factory=lambda: _int("CHECK_INTERVAL", 60))
-    alert_repeat_seconds: int = field(default_factory=lambda: _int("ALERT_REPEAT_SECONDS", 3600))
+    alert_repeat_seconds: int = field(default_factory=lambda: _int("ALERT_REPEAT_SECONDS", 86400))
     alert_confirmations: int = field(default_factory=lambda: _int("ALERT_CONFIRMATIONS", 2))
     offline_after_missed: int = field(default_factory=lambda: _int("OFFLINE_AFTER_MISSED", 3))
 
